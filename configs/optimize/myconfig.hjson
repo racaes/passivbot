@@ -6,13 +6,13 @@
   pitch_adjusting_rate: 0.24
 
   # particle swarm optimization parameters
-  n_particles: 24
+  n_particles: 48
   w: 0.73  # weight of previous velocity
   c0: 1.0  # attraction to local best
   c1: 0.5  # attraction to global best
 
   # choices: [p/pso/particle_swarm_optimization, h/hs/harmony_search]
-  algorithm: h
+  algorithm: p
 
   n_cpus: 52
   iters: 8000
@@ -50,7 +50,7 @@
 
   # clip results: compute score on top performers only
   # clip_threshold=0.1 means drop 10% worst performers; clip_threshold=0.0 means include all
-  clip_threshold: 0.5
+  clip_threshold: 0.1
 
   # will override starting configs' parameters
   do_long: true
@@ -59,7 +59,7 @@
   backwards_tp_short: true
 
   # choices: [r/recursive_grid, s/static_grid, n/neat_grid, c/clock]
-  passivbot_mode: n
+  passivbot_mode: r
 
   # symbols with data since earlier than 2021-05-01
   symbols: [
@@ -92,7 +92,7 @@
     long:
     {
       grid_span: [0.1, 0.7]
-      wallet_exposure_limit: [0.05, 0.2]
+      wallet_exposure_limit: [0.025, 0.25]
       max_n_entry_orders: [3, 13]
       ema_span_0: [10.0, 720.0]
       ema_span_1: [10.0, 1440.0]
@@ -111,7 +111,7 @@
     short:
     {
       grid_span: [0.1, 0.7]
-      wallet_exposure_limit: [0.025, 0.10]
+      wallet_exposure_limit: [0.025, 0.15]
       max_n_entry_orders: [3, 13]
       ema_span_0: [10.0, 720.0]
       ema_span_1: [10.0, 1440.0]
