@@ -3,7 +3,7 @@
   market_type: futures
 
   # exchange from api-keys.json is used
-  user: bitget_01
+  user: binance_01
 
   symbol: specify_symbol
   latency_simulation_ms: 1000
@@ -12,8 +12,8 @@
   starting_balance: 1000.0
 
   # format YYYY-MM-DD
-  start_date: 2022-05-11
-  end_date: 2023-05-04
+  start_date: 2020-01-01
+  end_date: 2023-05-05
 
   # non default historical data path
   # defaults to local dir if unspecified
@@ -34,6 +34,6 @@
 
   # interactive plot configs:
   enable_interactive_plot: true
-  plot_theme: dark
+  plot_theme: light
   plot_candles_interval: 1m
 }

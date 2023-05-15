@@ -654,10 +654,14 @@ def analyze_fills_slim(fills_long: list, fills_short: list, stats: list, config:
     #  eqbal_ratio_mean_of_10_worst,
     #  eqbal_ratio_std,
 
+    #  plus n_days, starting_balance and adg_per_exposure
+
     if "adg_n_subdivisions" not in config:
         config["adg_n_subdivisions"] = 1
 
     ms_per_day = 1000 * 60 * 60 * 24
+
+    n_days = (stats[-1][0] - stats[0][0]) / ms_per_day
 
     if stats[-1][10] <= 0.0:
         adg_long = adg_weighted_long = stats[-1][10]
@@ -680,9 +684,9 @@ def analyze_fills_slim(fills_long: list, fills_short: list, stats: list, config:
         adg_short = adgs_short[0]
         adg_weighted_short = np.mean(adgs_short)
 
-    ts_diffs_long = np.diff([x[1] for x in fills_long]) if fills_long else [0.0]
+    ts_diffs_long = np.diff([x[1] for x in fills_long]) if len(fills_long) > 1 else np.array([0.0])
     hrs_stuck_max_long = ts_diffs_long.max() / (1000 * 60 * 60)
-    ts_diffs_short = np.diff([x[1] for x in fills_short]) if fills_short else [0.0]
+    ts_diffs_short = np.diff([x[1] for x in fills_short]) if len(fills_short) > 1 else np.array([0.0])
     hrs_stuck_max_short = ts_diffs_short.max() / (1000 * 60 * 60)
 
     # pa dist
@@ -719,10 +723,23 @@ def analyze_fills_slim(fills_long: list, fills_short: list, stats: list, config:
     eqbal_ratio_std_short = np.std(eqbal_ratios_short)
     eqbal_ratio_mean_of_10_worst_short = np.mean(sorted(eqbal_ratios_short)[:10])
 
+    exposure_ratios_long = [
+        qty_to_cost(elm[3], elm[4], config["inverse"], config["c_mult"]) / elm[10] for elm in stats
+    ]
+    exposure_ratios_mean_long = np.mean(exposure_ratios_long)
+    exposure_ratios_short = [
+        qty_to_cost(elm[5], elm[6], config["inverse"], config["c_mult"]) / elm[11] for elm in stats
+    ]
+    exposure_ratios_mean_short = np.mean(exposure_ratios_short)
+
     return {
         "adg_weighted_per_exposure_long": adg_weighted_long / config["long"]["wallet_exposure_limit"],
         "adg_weighted_per_exposure_short": adg_weighted_short
         / config["short"]["wallet_exposure_limit"],
+        "adg_per_exposure_long": adg_long / config["long"]["wallet_exposure_limit"],
+        "adg_per_exposure_short": adg_short / config["short"]["wallet_exposure_limit"],
+        "n_days": n_days,
+        "starting_balance": stats[0][10],
         "pa_distance_std_long": pa_dists_long.std(),
         "pa_distance_std_short": pa_dists_short.std(),
         "pa_distance_mean_long": pa_dists_long.mean(),
@@ -735,6 +752,8 @@ def analyze_fills_slim(fills_long: list, fills_short: list, stats: list, config:
         "eqbal_ratio_mean_of_10_worst_short": eqbal_ratio_mean_of_10_worst_short,
         "eqbal_ratio_std_long": eqbal_ratio_std_long,
         "eqbal_ratio_std_short": eqbal_ratio_std_short,
+        "exposure_ratios_mean_long": exposure_ratios_mean_long,
+        "exposure_ratios_mean_short": exposure_ratios_mean_short,
     }
 
 
@@ -905,6 +924,11 @@ def analyze_fills(
     eqbal_ratios_sdf_short = sdf.equity_short / sdf.balance_short
     eqbal_ratio_std_short = eqbal_ratios_sdf_short.std()
 
+    exposure_ratios_long = sdf.wallet_exposure_long / config["long"]["wallet_exposure_limit"]
+    exposure_ratios_mean_long = exposure_ratios_long.mean()
+    exposure_ratios_short = sdf.wallet_exposure_short / config["short"]["wallet_exposure_limit"]
+    exposure_ratios_mean_short = exposure_ratios_short.mean()
+
     analysis = {
         "exchange": config["exchange"] if "exchange" in config else "unknown",
         "symbol": config["symbol"] if "symbol" in config else "unknown",
@@ -939,6 +963,8 @@ def analyze_fills(
         else -1.0,
         "adg_per_exposure_short": adg_per_exposure_short,
         "adg_weighted_per_exposure_short": adg_weighted_per_exposure_short,
+        "exposure_ratios_mean_long": exposure_ratios_mean_long,
+        "exposure_ratios_mean_short": exposure_ratios_mean_short,
         "n_days": n_days,
         "n_fills_long": len(fills_long),
         "n_fills_short": len(fills_short),

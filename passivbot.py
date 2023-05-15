@@ -58,6 +58,8 @@ from njit_clock import (
     calc_clock_entry_short,
     calc_clock_close_long,
     calc_clock_close_short,
+    calc_delay_between_fills_ms_bid,
+    calc_delay_between_fills_ms_ask,
 )
 from typing import Union, Dict, List
 
@@ -79,6 +81,7 @@ class Bot:
 
         self.hedge_mode = self.config["hedge_mode"] = True
         self.set_config(self.config)
+        self.server_time = utc_ms()
 
         self.ts_locked = {
             k: 0.0
@@ -214,8 +217,10 @@ class Bot:
             self.init_fills(),
             self.init_exchange_config(),
             self.init_order_book(),
-            self.init_emas(),
+            self.update_server_time(),
+            self.update_last_fills_timestamps(),
         )
+        await self.init_emas()
         print("done")
         if "price_step_custom" in self.config and self.config["price_step_custom"] is not None:
             new_price_step = max(
@@ -260,51 +265,65 @@ class Bot:
         self.alpha__long = 1 - self.alpha_long
         self.alpha_short = 2 / (self.ema_spans_short + 1)
         self.alpha__short = 1 - self.alpha_short
-        self.ema_min = int(round(time.time() // 60 * 60))
+        self.ema_minute = int(round(time.time() // 60 * 60))
         return samples1m
 
     async def init_emas(self) -> None:
-        ohlcvs1m = await self.fetch_ohlcvs(interval="1m")
-        max_span = max(list(self.ema_spans_long) + list(self.ema_spans_short))
-        for mins, interval in zip([5, 15, 30, 60, 60 * 4], ["5m", "15m", "30m", "1h", "4h"]):
-            if max_span <= len(ohlcvs1m) * mins:
-                break
-        ohlcvs = await self.fetch_ohlcvs(interval=interval)
-        ohlcvs = {ohlcv["timestamp"]: ohlcv for ohlcv in ohlcvs + ohlcvs1m}
-        if self.ohlcv:
-            return await self.init_emas_1m(ohlcvs)
-        samples1s = calc_samples(
-            numpyize(
-                [
-                    [o["timestamp"], o["volume"], o["close"]]
-                    for o in sorted(ohlcvs.values(), key=lambda x: x["timestamp"])
-                ]
+        ohlcvs1m = None
+        try:
+            ohlcvs1m = await self.fetch_ohlcvs(interval="1m")
+            max_span = max(list(self.ema_spans_long) + list(self.ema_spans_short))
+            for mins, interval in zip([5, 15, 30, 60, 60 * 4], ["5m", "15m", "30m", "1h", "4h"]):
+                if max_span <= len(ohlcvs1m) * mins:
+                    break
+            ohlcvs = await self.fetch_ohlcvs(interval=interval)
+            ohlcvs = {ohlcv["timestamp"]: ohlcv for ohlcv in ohlcvs + ohlcvs1m}
+            if self.ohlcv:
+                return await self.init_emas_1m(ohlcvs)
+            samples1s = calc_samples(
+                numpyize(
+                    [
+                        [o["timestamp"], o["volume"], o["close"]]
+                        for o in sorted(ohlcvs.values(), key=lambda x: x["timestamp"])
+                    ]
+                )
             )
-        )
-        spans1s_long = np.array(self.ema_spans_long) * 60
-        spans1s_short = np.array(self.ema_spans_short) * 60
-        self.emas_long = calc_emas_last(samples1s[:, 2], spans1s_long)
-        self.emas_short = calc_emas_last(samples1s[:, 2], spans1s_short)
-        self.alpha_long = 2 / (spans1s_long + 1)
-        self.alpha__long = 1 - self.alpha_long
-        self.alpha_short = 2 / (spans1s_short + 1)
-        self.alpha__short = 1 - self.alpha_short
-        self.ema_sec = int(time.time())
-        # return samples1s
+            spans1s_long = np.array(self.ema_spans_long) * 60
+            spans1s_short = np.array(self.ema_spans_short) * 60
+            self.emas_long = calc_emas_last(samples1s[:, 2], spans1s_long)
+            self.emas_short = calc_emas_last(samples1s[:, 2], spans1s_short)
+            self.alpha_long = 2 / (spans1s_long + 1)
+            self.alpha__long = 1 - self.alpha_long
+            self.alpha_short = 2 / (spans1s_short + 1)
+            self.alpha__short = 1 - self.alpha_short
+            self.ema_sec = int(time.time())
+        except Exception as e:
+            logging.error(f"error with init_emas {e}")
+            traceback.print_exc()
+            print_async_exception(ohlcvs1m)
+
+            self.emas_long = np.repeat(self.price, 3)
+            self.emas_short = np.repeat(self.price, 3)
+            self.alpha_long = 2 / (np.array(self.ema_spans_long) * (1 if self.ohlcv else 60) + 1)
+            self.alpha__long = 1 - self.alpha_long
+            self.alpha_short = 2 / (np.array(self.ema_spans_short) * (1 if self.ohlcv else 60) + 1)
+            self.alpha__short = 1 - self.alpha_short
+            self.ema_sec = int(time.time())
+            self.ema_minute = int(round(time.time() // 60 * 60))
 
     def update_emas_1m(self, price: float, prev_price: float) -> None:
-        now_min = int(round(time.time() // 60 * 60))
-        if now_min <= self.ema_min:
+        now_minute = int(round(time.time() // 60 * 60))
+        if now_minute <= self.ema_minute:
             return
-        while self.ema_min < int(round(now_min - 60)):
+        while self.ema_minute < int(round(now_minute - 60)):
             self.emas_long = calc_ema(self.alpha_long, self.alpha__long, self.emas_long, prev_price)
             self.emas_short = calc_ema(
                 self.alpha_short, self.alpha__short, self.emas_short, prev_price
             )
-            self.ema_min += 60
+            self.ema_minute += 60
         self.emas_long = calc_ema(self.alpha_long, self.alpha__long, self.emas_long, price)
         self.emas_short = calc_ema(self.alpha_short, self.alpha__short, self.emas_short, price)
-        self.ema_min = now_min
+        self.ema_minute = now_minute
 
     def update_emas(self, price: float, prev_price: float) -> None:
         if self.ohlcv:
@@ -419,7 +438,16 @@ class Bot:
             self.ts_released["update_position"] = time.time()
 
     async def init_fills(self, n_days_limit=60):
-        self.fills = await self.fetch_fills()
+        fills = None
+        try:
+            fills = await self.fetch_fills()
+            self.fills = fills
+            return True
+        except Exception as e:
+            self.fills = []
+            traceback.print_exc()
+            print_async_exception(fills)
+            return False
 
     async def update_fills(self) -> [dict]:
         """
@@ -634,8 +662,8 @@ class Bot:
                             psize_long,
                             pprice_long,
                             self.ob[0],
-                            min(self.emas_long),
-                            utc_ms(),
+                            self.emas_long,
+                            self.server_time,
                             0
                             if psize_long == 0.0
                             else self.last_fills_timestamps["clock_entry_long"],
@@ -695,8 +723,8 @@ class Bot:
                         psize_long,
                         pprice_long,
                         self.ob[1],
-                        max(self.emas_long),
-                        utc_ms(),
+                        self.emas_long,
+                        self.server_time,
                         self.last_fills_timestamps["clock_close_long"],
                         self.xk["inverse"],
                         self.xk["qty_step"],
@@ -842,8 +870,8 @@ class Bot:
                             psize_short,
                             pprice_short,
                             self.ob[1],
-                            max(self.emas_short),
-                            utc_ms(),
+                            self.emas_short,
+                            self.server_time,
                             0
                             if psize_short == 0.0
                             else self.last_fills_timestamps["clock_entry_short"],
@@ -903,8 +931,8 @@ class Bot:
                         psize_short,
                         pprice_short,
                         self.ob[0],
-                        min(self.emas_short),
-                        utc_ms(),
+                        self.emas_short,
+                        self.server_time,
                         self.last_fills_timestamps["clock_close_short"],
                         self.xk["inverse"],
                         self.xk["qty_step"],
@@ -1080,7 +1108,7 @@ class Bot:
         await self.cancel_and_create()
 
     def heartbeat_print(self):
-        logging.info(f"heartbeat {self.symbol}")
+        logging.info(f"heartbeat {self.symbol}  ")
         self.log_position_long()
         self.log_position_short()
         liq_price = self.position["long"]["liquidation_price"]
@@ -1358,27 +1386,107 @@ class Bot:
         finally:
             self.ts_released["update_last_fills_timestamps"] = time.time()
 
+    async def update_server_time(self):
+        server_time = None
+        try:
+            server_time = await self.get_server_time()
+            self.server_time = server_time
+            return True
+        except Exception as e:
+            self.server_time = utc_ms()
+            traceback.print_exc()
+            print_async_exception(server_time)
+            return False
+
     async def start_ohlcv_mode(self):
         logging.info("starting bot...")
+        refresh_interval = 60
+        offset_adjusted = self.countdown_offset % refresh_interval
         while True:
             now = time.time()
-            # print('secs until next', ((now + 60) - now % 60) - now)
-            refresh_interval = 60
-            while int(now) % refresh_interval != (self.countdown_offset % refresh_interval):
+            secs_left = refresh_interval - (int(now) + offset_adjusted) % refresh_interval
+            for i in range(secs_left, -1, -1):
                 if self.stop_websocket:
                     break
-                await asyncio.sleep(0.5)
-                now = time.time()
                 if self.countdown:
-                    print(
-                        f"\rcountdown: {((now + 60) - now % 60) - now:.1f} last price: {self.price}      ",
-                        end=" ",
-                    )
+                    line = f"\rcountdown: {i} last price: {self.price}"
+                    do_long = self.do_long or self.position["long"]["size"] != 0.0
+                    do_short = self.do_short or self.position["short"]["size"] != 0.0
+                    if (do_long or do_short) and self.passivbot_mode == "clock":
+                        line += " | mins delay until next: "
+                        try:
+                            res = self.calc_minutes_until_next_orders()
+                            if do_long:
+                                line += f"entry long: {res['entry_long']:.1f}, close long: {res['close_long']:.1f}"
+                            if do_short:
+                                line += f"entry short: {res['entry_short']:.1f}, close short: {res['close_short']:.1f}"
+                        except Exception as e:
+                            print("error computing minutes until next order", e)
+                            traceback.print_exc()
+                    if i == 0:
+                        print("\r" + " " * (len(line) + 10), end=" ")
+                    else:
+                        print(line + "                ", end=" ")
+                await asyncio.sleep(1)
             if self.stop_websocket:
                 break
             await asyncio.sleep(1.0)
             await self.on_minute_mark()
             await asyncio.sleep(1.0)
+
+    def calc_minutes_until_next_orders(self):
+        res = {"entry_long": 0.0, "close_long": 0.0, "entry_short": 0.0, "close_short": 0.0}
+        if self.position["long"]["size"] != 0.0:
+            millis_delay_next_entry_long = calc_delay_between_fills_ms_bid(
+                self.position["long"]["price"],
+                self.price,
+                self.xk["delay_between_fills_ms_entry"][0],
+                self.xk["delay_weight_entry"][0],
+            )
+            millis_since_prev_close_long = (
+                self.server_time - self.last_fills_timestamps["clock_entry_long"]
+            )
+            res["entry_long"] = max(
+                0.0, (millis_delay_next_entry_long - millis_since_prev_close_long) / 1000 / 60
+            )
+        millis_delay_next_close_long = calc_delay_between_fills_ms_ask(
+            self.position["long"]["price"],
+            self.price,
+            self.xk["delay_between_fills_ms_close"][0],
+            self.xk["delay_weight_close"][0],
+        )
+        millis_since_prev_close_long = (
+            self.server_time - self.last_fills_timestamps["clock_close_long"]
+        )
+        res["close_long"] = max(
+            0.0, (millis_delay_next_close_long - millis_since_prev_close_long) / 1000 / 60
+        )
+        if self.position["short"]["size"] != 0.0:
+            millis_delay_next_entry_short = calc_delay_between_fills_ms_ask(
+                self.position["short"]["price"],
+                self.price,
+                self.xk["delay_between_fills_ms_entry"][0],
+                self.xk["delay_weight_entry"][0],
+            )
+            millis_since_prev_close_short = (
+                self.server_time - self.last_fills_timestamps["clock_entry_short"]
+            )
+            res["entry_short"] = max(
+                0.0, (millis_delay_next_entry_short - millis_since_prev_close_short) / 1000 / 60
+            )
+        millis_delay_next_close_short = calc_delay_between_fills_ms_bid(
+            self.position["short"]["price"],
+            self.price,
+            self.xk["delay_between_fills_ms_close"][0],
+            self.xk["delay_weight_close"][0],
+        )
+        millis_since_prev_close_short = (
+            self.server_time - self.last_fills_timestamps["clock_close_short"]
+        )
+        res["close_short"] = max(
+            0.0, (millis_delay_next_close_short - millis_since_prev_close_short) / 1000 / 60
+        )
+        return res
 
     async def on_minute_mark(self):
         # called each whole minute
@@ -1391,9 +1499,14 @@ class Bot:
                 self.heartbeat_ts = time.time()
             self.prev_price = self.ob[0]
             prev_pos = self.position.copy()
-            to_update = [self.update_position(), self.update_open_orders(), self.init_order_book()]
+            to_update = [
+                self.update_position(),
+                self.update_open_orders(),
+                self.init_order_book(),
+            ]
             if self.passivbot_mode == "clock":
                 to_update.append(self.update_last_fills_timestamps())
+                to_update.append(self.update_server_time())
             res = await asyncio.gather(*to_update)
             self.update_emas(self.ob[0], self.prev_price)
             """
@@ -1405,7 +1518,7 @@ class Bot:
             print(res)
             """
             if not all(res):
-                reskeys = ["pos", "open orders", "order book", "last fills"]
+                reskeys = ["pos", "open orders", "order book", "last fills", "server_time"]
                 line = "error with "
                 for i in range(len(to_update)):
                     if not to_update[i]:
