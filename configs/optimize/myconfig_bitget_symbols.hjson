@@ -12,7 +12,7 @@
   c1: 0.5  # attraction to global best
 
   # choices: [p/pso/particle_swarm_optimization, h/hs/harmony_search]
-  algorithm: p
+  algorithm: h
 
   n_cpus: 52
   iters: 8000
@@ -63,68 +63,68 @@
 
   # symbols with data since earlier than 2021-05-01
   symbols: [
-  # "BTCUSDT", "ETHUSDT", "XRPUSDT", "EOSUSDT", "BCHUSDT", "LTCUSDT",
-  # "ADAUSDT", "ETCUSDT", "LINKUSDT", "TRXUSDT", "DOTUSDT", "DOGEUSDT",
-  #  "SOLUSDT", "MATICUSDT", "BNBUSDT", "UNIUSDT", "ICPUSDT", "AAVEUSDT",
-   #  "FILUSDT", "XLMUSDT", "ATOMUSDT", "XTZUSDT", "SUSHIUSDT", "AXSUSDT",
-   #  "THETAUSDT", "AVAXUSDT", "DASHUSDT",
+    "BTCUSDT", "ETHUSDT", "XRPUSDT", "EOSUSDT", "BCHUSDT", "LTCUSDT",
+    "ADAUSDT", "ETCUSDT", "LINKUSDT", "TRXUSDT", "DOTUSDT", "DOGEUSDT",
+    "SOLUSDT", "MATICUSDT", "BNBUSDT", "UNIUSDT", "ICPUSDT", "AAVEUSDT",
+    "FILUSDT", "XLMUSDT", "ATOMUSDT", "XTZUSDT", "SUSHIUSDT", "AXSUSDT",
+    "THETAUSDT", "AVAXUSDT", "DASHUSDT",
 
     # "SHIBUSDT", # delete
 
-     # "MANAUSDT", "GALAUSDT",
-     # "SANDUSDT", "DYDXUSDT", "CRVUSDT", "NEARUSDT", "EGLDUSDT", "KSMUSDT",
-     # "ARUSDT", "RENUSDT", "FTMUSDT", "PEOPLEUSDT", "LRCUSDT", "NEOUSDT",
-     # "ALICEUSDT", "WAVESUSDT", "ALGOUSDT", "IOTAUSDT", "YFIUSDT", "ENJUSDT",
-     # "GMTUSDT", "ZILUSDT", "IOSTUSDT", "APEUSDT", "RUNEUSDT", "KNCUSDT", "APTUSDT",
-     #  "CHZUSDT", "XMRUSDT", "ROSEUSDT", "ZRXUSDT", "KAVAUSDT", "ENSUSDT", "GALUSDT",
-      # "MTLUSDT", "AUDIOUSDT", "SXPUSDT", "C98USDT", "OPUSDT", "RSRUSDT", "SNXUSDT",
-      #  "STORJUSDT", "1INCHUSDT", "COMPUSDT", "IMXUSDT", "LUNA2USDT", "FLOWUSDT",
-      #  "REEFUSDT", "TRBUSDT", "QTUMUSDT", "API3USDT", "MASKUSDT", "WOOUSDT",
-       #  "GRTUSDT", "BANDUSDT", "STGUSDT",
+    "MANAUSDT", "GALAUSDT",
+    "SANDUSDT", "DYDXUSDT", "CRVUSDT", "NEARUSDT", "EGLDUSDT", "KSMUSDT",
+    "ARUSDT", "RENUSDT", "FTMUSDT", "PEOPLEUSDT", "LRCUSDT", "NEOUSDT",
+    "ALICEUSDT", "WAVESUSDT", "ALGOUSDT", "IOTAUSDT", "YFIUSDT", "ENJUSDT",
+    "GMTUSDT", "ZILUSDT", "IOSTUSDT", "APEUSDT", "RUNEUSDT", "KNCUSDT", "APTUSDT",
+    "CHZUSDT", "XMRUSDT", "ROSEUSDT", "ZRXUSDT", "KAVAUSDT", "ENSUSDT", "GALUSDT",
+    "MTLUSDT", "AUDIOUSDT", "SXPUSDT", "C98USDT", "OPUSDT", "RSRUSDT", "SNXUSDT",
+    "STORJUSDT", "1INCHUSDT", "COMPUSDT", "IMXUSDT", "LUNA2USDT", "FLOWUSDT",
+    "REEFUSDT", "TRBUSDT", "QTUMUSDT", "API3USDT", "MASKUSDT", "WOOUSDT",
+    "GRTUSDT", "BANDUSDT", "STGUSDT",
 
-       #  "LUNCUSDT", # delete
+    #  "LUNCUSDT", # delete
 
-        # "ONEUSDT", "JASMYUSDT",
-        # "FOOTBALLUSDT", "MKRUSDT", "BATUSDT", "MAGICUSDT", "ALPHAUSDT", "LDOUSDT",
-        #  "OCEANUSDT", "CELOUSDT", "BLURUSDT", "MINAUSDT",
+    "ONEUSDT", "JASMYUSDT",
+    "FOOTBALLUSDT", "MKRUSDT", "BATUSDT", "MAGICUSDT", "ALPHAUSDT", "LDOUSDT",
+    "OCEANUSDT", "CELOUSDT", "BLURUSDT", "MINAUSDT",
 
 
-        #  "COREUSDT", # delete (no data, as most of the last delete pairs
+    # "COREUSDT", # delete (no data, as most of the last delete pairs
 
-        # "CFXUSDT",
-        #  "HIGHUSDT", "ASTRUSDT", "AGIXUSDT", "GMXUSDT", "LINAUSDT", "ANKRUSDT",
+    "CFXUSDT",
+    "HIGHUSDT", "ASTRUSDT", "AGIXUSDT", "GMXUSDT", "LINAUSDT", "ANKRUSDT",
 
-        #   "GFTUSDT", # delete (no data)
+    #   "GFTUSDT", # delete (no data)
 
-         #"ACHUSDT", "FETUSDT", "FXSUSDT", "RNDRUSDT", "HOOKUSDT",
-         # "BNXUSDT", "SSVUSDT",
+    "ACHUSDT", "FETUSDT", "FXSUSDT", "RNDRUSDT", "HOOKUSDT",
+    "BNXUSDT", "SSVUSDT",
 
-          # "BGHOT10USDT", # delete (no data)
+    # "BGHOT10USDT", # delete (no data)
 
-          # "USDCUSDT", "LQTYUSDT", "STXUSDT",
-          # "TRUUSDT", "DUSKUSDT", "HBARUSDT", "INJUSDT", "BELUSDT", "COTIUSDT",
-          # "VETUSDT", "ARBUSDT", "TOMOUSDT",
+    "USDCUSDT", "LQTYUSDT", "STXUSDT",
+    "TRUUSDT", "DUSKUSDT", "HBARUSDT", "INJUSDT", "BELUSDT", "COTIUSDT",
+    "VETUSDT", "ARBUSDT", "TOMOUSDT",
 
-          #  "LOOKSUSDT", # delete (no data)
+    #  "LOOKSUSDT", # delete (no data)
 
-          # "KLAYUSDT", "FLMUSDT",
-          # "OMGUSDT", "RLCUSDT", "CKBUSDT", "IDUSDT", "LITUSDT", "JOEUSDT",
-          # "TLMUSDT", "HOTUSDT", "BLZUSDT", "CHRUSDT", "RDNTUSDT", "ICXUSDT",
-          # "HFTUSDT", "ONTUSDT", "ZECUSDT", "UNFIUSDT", "NKNUSDT", "ARPAUSDT",
-          # "DARUSDT", "SFPUSDT", "CTSIUSDT", "SKLUSDT", "RVNUSDT", "COCOSUSDT",
-          #  "CELRUSDT",
+    "KLAYUSDT", "FLMUSDT",
+    "OMGUSDT", "RLCUSDT", "CKBUSDT", "IDUSDT", "LITUSDT", "JOEUSDT",
+    "TLMUSDT", "HOTUSDT", "BLZUSDT", "CHRUSDT", "RDNTUSDT", "ICXUSDT",
+    "HFTUSDT", "ONTUSDT", "ZECUSDT", "UNFIUSDT", "NKNUSDT", "ARPAUSDT",
+    "DARUSDT", "SFPUSDT", "CTSIUSDT", "SKLUSDT", "RVNUSDT", "COCOSUSDT",
+    "CELRUSDT",
 
-          #  "FLOKIUSDT", # delete (no data)
+    #  "FLOKIUSDT", # delete (no data)
 
-           # "SPELLUSDT", # this is ok, not delete
+    # "SPELLUSDT", # this is ok, not delete
 
-           # "SUIUSDT", "EDUUSDT",
+    "SUIUSDT", "EDUUSDT",
 
-           # "AIDOGEUSDT", # delete (no data)
-            # "PEPEUSDT", # delete (no data)
-            # "METAHOTUSDT", # delete (no data)
+    # "AIDOGEUSDT", # delete (no data)
+    # "PEPEUSDT", # delete (no data)
+    # "METAHOTUSDT", # delete (no data)
 
-            ]
+    ]
 
 
   bounds_static_grid:
