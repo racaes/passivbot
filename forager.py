@@ -400,15 +400,16 @@ async def main():
         ("symbols_to_ignore", []),
         ("live_configs_map_long", {}),
         ("live_configs_map_short", {}),
+        ("update_interval_minutes", 60),
     ]:
         if key not in config:
             config[key] = value
     exchange, key, secret, passphrase = load_exchange_key_secret_passphrase(config["user"])
-    cc = getattr(ccxt, exchange_map[exchange])({"apiKey": key, "secret": secret, "password": passphrase})
     max_n_tries_per_hour = 5
     error_timestamps = []
     while True:
         try:
+            cc = getattr(ccxt, exchange_map[exchange])({"apiKey": key, "secret": secret, "password": passphrase})
             await dump_yaml(cc, config)
             print("waiting one minute to avoid API rate limiting...")
             for i in range(60, -1, -1):
@@ -417,7 +418,7 @@ async def main():
             print()
             subprocess.run(["tmux", "kill-session", "-t", config["user"]])
             subprocess.run(["tmuxp", "load", "-d", config["yaml_filepath"]])
-            for i in range(3600, -1, -1):
+            for i in range(config["update_interval_minutes"] * 60, -1, -1):
                 time.sleep(1)
                 print(f"\rcountdown: {i}    ", end=" ")
             print()
