@@ -3,9 +3,9 @@
   market_type: futures
 
   # exchange from api-keys.json is used
-  user: binance_01
+  user: bitget_01
 
-  symbol: specify_symbol
+  symbol: GALUSDT
   latency_simulation_ms: 1000
 
   # specify starting balance in terms of margin token (i.e. usdt for usdt-m, coin for inverse coin-m)
@@ -26,7 +26,7 @@
   base_dir: backtests
 
   # use 1m ohlcvs instead of 1s ticks
-  ohlcv: true
+  ohlcv: false
 
   # take mean of adgs of subdivisions of whole period
   # e.g. if adg_n_subdivisions=1, adg of whole period

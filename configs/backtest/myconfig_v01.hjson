@@ -5,7 +5,7 @@
   # exchange from api-keys.json is used
   user: bitget_01
 
-  symbol: BATUSDT
+  symbol: GALUSDT
   latency_simulation_ms: 800
 
   # specify starting balance in terms of margin token (i.e. usdt for usdt-m, coin for inverse coin-m)
