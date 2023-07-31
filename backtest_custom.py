@@ -55,7 +55,7 @@ for k, v in results_dict.items():
     text = text.replace("\x1b[31m", "")
     full_text += f"KEY: {k}\n\n" + text + "\n"
 
-text_file = open("full_report.txt", "wt")
+text_file = open("results_full_report.txt", "wt")
 n = text_file.write(full_text)
 text_file.close()
 
