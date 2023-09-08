@@ -222,7 +222,7 @@ class Bot:
         )
         await self.init_emas()
         print("done")
-        if "price_step_custom" in self.config and self.config["price_step_custom"] is not None:
+        if "price_step_custom" in self.config and self.config["price_step_custom"] not in [None, 0.0]:
             new_price_step = max(
                 self.price_step, round_(self.config["price_step_custom"], self.price_step)
             )
@@ -231,7 +231,7 @@ class Bot:
                 self.price_step = self.config["price_step"] = self.xk["price_step"] = new_price_step
         elif (
             "price_precision_multiplier" in self.config
-            and self.config["price_precision_multiplier"] is not None
+            and self.config["price_precision_multiplier"] not in [None, 0.0]
         ):
             new_price_step = max(
                 self.price_step,
@@ -1747,7 +1747,7 @@ async def main() -> None:
         required=False,
         dest="price_precision_multiplier",
         default=None,
-        help="Override price step with round_dynamic(market_price * price_precision, 1).  Suggested val 0.0001",
+        help="Override price step with market_price * price_precision_multiplier rounded to one significant digit. Suggested val 0.0001. Set to 0.0 to disable.",
     )
     parser.add_argument(
         "-ps",
@@ -1757,7 +1757,7 @@ async def main() -> None:
         required=False,
         dest="price_step_custom",
         default=None,
-        help="Override price step with custom price step.  Takes precedence over -pp",
+        help="Override price step with custom price step.  Takes precedence over -pp. Set to 0.0 to disable.",
     )
     parser.add_argument(
         "-co",
