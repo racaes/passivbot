@@ -1,8 +1,8 @@
 {
   // supported exchanges: [kucoin, okx, bybit, binance]
   user: bitget_01
-  twe_long: 1.
-  twe_short: 0.5
+  twe_long: 1.6
+  twe_short: 0.8
   n_longs: 6
   n_shorts: 3
   max_min_cost: 5.0
@@ -22,10 +22,11 @@
   update_interval_minutes: 60
 
   // Don't create bots with these symbols
-  // symbols_to_ignore: [
-  //   SYM1USDT
-  //   SYM2USDT
-  // ]
+  symbols_to_ignore: [
+    BLZUSDT
+    GFTUSDT
+    MTLUSDT
+  ]
 
   // if symbol is missing from live_configs_map, default to this config
   default_config_path: configs/live/forager_test_like_galusdt.json
@@ -38,24 +39,24 @@
   // elif symbol is present in live_configs_map, use that config for {long/short}
   // else use default_config_path for {long/short}
 
-  // live_configs_map: {
+  live_configs_map: {
   //   BTCUSDT: configs/live/clock_mode.example.json
   //   ETHUSDT: configs/live/neat_grid_mode.example.json
   //   DOGEUSDT: configs/live/recursive_grid_mode.example.json
-  // }
+  }
 
   // will override long configs from live_configs_map
-  // live_configs_map_long: {
+  live_configs_map_long: {
   //   BTCUSDT: configs/live/clock_mode.example.json
   //   XMRUSDT: configs/live/neat_grid_mode.example.json
   //   XRPUSDT: configs/live/recursive_grid_mode.example.json
-  // }
+  }
 
   // will override short configs from live_configs_map
-  // live_configs_map_short: {
+  live_configs_map_short: {
   //   BTCUSDT: configs/live/clock_mode.example.json
   //   ETHUSDT: configs/live/neat_grid_mode.example.json
   //   DOGEUSDT: configs/live/recursive_grid_mode.example.json
-  // }
+  }
 
 }

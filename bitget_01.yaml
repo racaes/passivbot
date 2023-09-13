@@ -1,0 +1,41 @@
+session_name: bitget_01
+windows:
+- window_name: bitget_01_normal_0
+  layout: even-vertical
+  shell_command_before:
+    - cd ~/passivbot
+  panes:
+    - shell_command:
+      - python3 passivbot.py bitget_01 FLMUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm n -lev 10 -cd -pt 0.3
+    - shell_command:
+      - python3 passivbot.py bitget_01 LEVERUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm n -lev 10 -cd -pt 0.3
+- window_name: bitget_01_gs_0
+  layout: even-vertical
+  shell_command_before:
+    - cd ~/passivbot
+  panes:
+    - shell_command:
+      - python3 passivbot.py bitget_01 AVAXUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
+    - shell_command:
+      - python3 passivbot.py bitget_01 BCHUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
+    - shell_command:
+      - python3 passivbot.py bitget_01 BTCUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
+    - shell_command:
+      - python3 passivbot.py bitget_01 DOGEUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
+    - shell_command:
+      - python3 passivbot.py bitget_01 EOSUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
+    - shell_command:
+      - python3 passivbot.py bitget_01 ETHUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
+    - shell_command:
+      - python3 passivbot.py bitget_01 GALUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
+    - shell_command:
+      - python3 passivbot.py bitget_01 LUNA2/USDT:USDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
+- window_name: bitget_01_gs_8
+  layout: even-vertical
+  shell_command_before:
+    - cd ~/passivbot
+  panes:
+    - shell_command:
+      - python3 passivbot.py bitget_01 NEARUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
+    - shell_command:
+      - python3 passivbot.py bitget_01 SOLUSDT configs/live/forager_test_like_galusdt.json -lw 0.1333 -sw 0.1333 -lm gs -sm gs -lev 10 -cd -pt 0.3
