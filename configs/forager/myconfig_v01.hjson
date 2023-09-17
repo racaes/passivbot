@@ -3,8 +3,8 @@
   user: bitget_01
   twe_long: 3.0
   twe_short: 1.8
-  n_longs: 6
-  n_shorts: 3
+  n_longs: 2
+  n_shorts: 1
   max_min_cost: 5.0
   n_ohlcvs: 100
   ohlcv_interval: 1h
