@@ -6,7 +6,7 @@
   user: bitget_01
 
   symbol: TRBUSDT
-  latency_simulation_ms: 800
+  latency_simulation_ms: 300
 
   # specify starting balance in terms of margin token (i.e. usdt for usdt-m, coin for inverse coin-m)
   starting_balance: 1000.0
