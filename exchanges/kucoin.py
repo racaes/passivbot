@@ -299,6 +299,7 @@ class KuCoinBot(Bot):
             print_async_exception(positions)
             print_async_exception(balance)
             traceback.print_exc()
+            return None
 
     async def execute_orders(self, orders: [dict]) -> [dict]:
         if not orders:
@@ -475,7 +476,7 @@ class KuCoinBot(Bot):
     async def fetch_latest_fills(self):
         fetched = None
         try:
-            fetched = await self.private_get(self.endpoints["recent_orders"])
+            fetched = await self.private_get(self.endpoints["recent_orders"], {"symbol": self.symbol})
             return [
                 {
                     "order_id": elm["id"],

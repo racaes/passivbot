@@ -11,9 +11,11 @@ from pure_funcs import determine_pos_side_ccxt, floatify, calc_hash, ts_to_date_
 
 import ccxt.async_support as ccxt
 
+from procedures import load_ccxt_version
+ccxt_version_req = load_ccxt_version()
 assert (
-    ccxt.__version__ == "4.1.13"
-), f"Currently ccxt {ccxt.__version__} is installed. Please pip reinstall requirements.txt or install ccxt v4.0.57 manually"
+    ccxt.__version__ == ccxt_version_req
+), f"Currently ccxt {ccxt.__version__} is installed. Please pip reinstall requirements.txt or install ccxt v{ccxt_version_req} manually"
 
 
 class BybitBot(Bot):
@@ -103,7 +105,7 @@ class BybitBot(Bot):
                     "order_id": e["id"],
                     "custom_id": e["clientOrderId"],
                     "symbol": e["symbol"],
-                    "price": e["price"],
+                    "price": e["price"] if e["price"] is not None else self.price,
                     "qty": e["amount"],
                     "type": e["type"],
                     "side": e["side"],
@@ -133,17 +135,17 @@ class BybitBot(Bot):
 
     async def fetch_position(self) -> dict:
         positions, balance = None, None
+        position = {
+            "long": {"size": 0.0, "price": 0.0, "liquidation_price": 0.0},
+            "short": {"size": 0.0, "price": 0.0, "liquidation_price": 0.0},
+            "wallet_balance": 0.0,
+            "equity": 0.0,
+        }
         try:
             positions, balance = await asyncio.gather(
                 self.cc.fetch_positions(self.symbol), self.cc.fetch_balance()
             )
             positions = [e for e in positions if e["symbol"] == self.symbol]
-            position = {
-                "long": {"size": 0.0, "price": 0.0, "liquidation_price": 0.0},
-                "short": {"size": 0.0, "price": 0.0, "liquidation_price": 0.0},
-                "wallet_balance": 0.0,
-                "equity": 0.0,
-            }
             if positions:
                 for p in positions:
                     if p["side"] == "long":
@@ -169,51 +171,7 @@ class BybitBot(Bot):
             print_async_exception(positions)
             print_async_exception(balance)
             traceback.print_exc()
-        return
-
-        positions, balance = None, None
-        try:
-            positions, balance = await asyncio.gather(
-                self.cc.fetch_positions(),
-                self.cc.fetch_balance(),
-            )
-            positions = [e for e in positions if e["symbol"] == self.symbol]
-            position = {
-                "long": {"size": 0.0, "price": 0.0, "liquidation_price": 0.0},
-                "short": {"size": 0.0, "price": 0.0, "liquidation_price": 0.0},
-                "wallet_balance": 0.0,
-                "equity": 0.0,
-            }
-            if positions:
-                for p in positions:
-                    if p["side"] == "long":
-                        position["long"] = {
-                            "size": p["contracts"],
-                            "price": p["entryPrice"],
-                            "liquidation_price": p["liquidationPrice"]
-                            if p["liquidationPrice"]
-                            else 0.0,
-                        }
-                    elif p["side"] == "short":
-                        position["short"] = {
-                            "size": p["contracts"],
-                            "price": p["entryPrice"],
-                            "liquidation_price": p["liquidationPrice"]
-                            if p["liquidationPrice"]
-                            else 0.0,
-                        }
-            if balance:
-                for elm in balance["info"]["data"]:
-                    for elm2 in elm["details"]:
-                        if elm2["ccy"] == self.quote:
-                            position["wallet_balance"] = float(elm2["cashBal"])
-                            break
-            return position
-        except Exception as e:
-            logging.error(f"error fetching pos or balance {e}")
-            print_async_exception(positions)
-            print_async_exception(balance)
-            traceback.print_exc()
+            return None
 
     async def execute_orders(self, orders: [dict]) -> [dict]:
         return await self.execute_multiple(
@@ -457,7 +415,10 @@ class BybitBot(Bot):
             )
             logging.info(f"cross mode set {res}")
         except Exception as e:
-            logging.error(f"error setting cross mode: {e}")
+            if "margin mode is not modified" in str(e):
+                logging.info(str(e))
+            else:
+                logging.error(f"error setting cross mode: {e}")
         try:
             res = await self.cc.set_position_mode(hedged=True)
             logging.info(f"hedge mode set {res}")
@@ -467,4 +428,7 @@ class BybitBot(Bot):
             res = await self.cc.set_leverage(int(self.leverage), symbol=self.symbol)
             logging.info(f"leverage set {res}")
         except Exception as e:
-            logging.error(f"error setting leverage: {e}")
+            if "leverage not modified" in str(e):
+                logging.info(str(e))
+            else:
+                logging.error(f"error setting leverage: {e}")
