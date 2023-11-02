@@ -3,6 +3,10 @@ import os
 os.environ["NOJIT"] = "true"
 
 import ccxt.async_support as ccxt
+
+assert (
+    ccxt.__version__ == "4.1.13"
+), f"Currently ccxt {ccxt.__version__} is installed. Please pip reinstall requirements.txt or install ccxt v4.0.57 manually"
 import json
 import hjson
 import pprint
@@ -12,8 +16,9 @@ import time
 import subprocess
 import argparse
 import traceback
-from procedures import load_exchange_key_secret_passphrase, utc_ms
+from procedures import load_exchange_key_secret_passphrase, utc_ms, make_get_filepath, get_first_ohlcv_timestamps
 from njit_funcs import calc_emas
+from pure_funcs import determine_pos_side_ccxt, date_to_ts2
 
 
 def score_func_old(ohlcv):
@@ -61,29 +66,23 @@ def calc_volume_sum(ohlcv):
 
 def sort_symbols(ohlcvs, config):
     min_n_syms = max(config["n_longs"], config["n_shorts"])
-    print('min_n_syms', min_n_syms)
-    volume_clip_threshold = config["volume_clip_threshold"]
-    unilateralness_clip_threshold = config["unilateralness_clip_threshold"]
-    # select for high volume
-    by_volume = sorted([(calc_volume_sum(ohlcvs[sym]), sym) for sym in ohlcvs], reverse=True)
-    print('sorted by_volume high to low', len(by_volume))
-    for elm in by_volume:
-        print(elm)
-    by_volume = by_volume[:max(min_n_syms, int(round(len(by_volume) * volume_clip_threshold)))]
-
-    # select for low unilateralness
-    by_unilateralness = sorted([(calc_unilateralness(ohlcvs[sym]), sym) for _, sym in by_volume])
-    print('sorted by_unilateralness low to high', len(by_unilateralness))
-    for elm in by_unilateralness:
-        print(elm)
-    by_unilateralness = by_unilateralness[:max(min_n_syms, int(round(len(by_unilateralness) * unilateralness_clip_threshold)))]
-
-    # select for high noisiness
-    by_noisiness = sorted([(calc_noisiness(ohlcvs[sym]), sym) for _, sym in by_unilateralness], reverse=True)
-    print('sorted by_noisiness high to low', len(by_noisiness))
-    for elm in by_noisiness:
-        print(elm)
-    return by_noisiness
+    print("min_n_syms", min_n_syms)
+    filtered_syms = list(ohlcvs)
+    by_func = [(0.0, sym) for sym in filtered_syms]
+    for title, func, higher_is_better in [
+        ("volume", calc_volume_sum, True),
+        ("unilateralness", calc_unilateralness, False),
+        ("noisiness", calc_noisiness, True),
+    ]:
+        if config[f"{title}_clip_threshold"] == 0.0:
+            continue
+        by_func = sorted([(func(ohlcvs[sym]), sym) for sym in filtered_syms], reverse=higher_is_better)
+        print(f"sorted by {title} {'high to low' if higher_is_better else 'low to high'} n syms: {len(by_func)}")
+        for elm in by_func:
+            print(elm)
+        by_func = by_func[: max(int(round(len(by_func) * config[f"{title}_clip_threshold"])), min_n_syms)]
+        filtered_syms = [elm[1] for elm in by_func]
+    return by_func
 
 
 def generate_yaml(
@@ -107,8 +106,14 @@ def generate_yaml(
     sorted_syms = [x[1] for x in sorted_syms]
     current_positions_long = sorted(set(current_positions_long + current_open_orders_long))
     current_positions_short = sorted(set(current_positions_short + current_open_orders_short))
-    ideal_longs = sorted_syms[:n_longs]
-    ideal_shorts = sorted_syms[:n_shorts]
+    approved_longs = (
+        set(config["approved_symbols_long"]) if len(config["approved_symbols_long"]) > 0 else set(sorted_syms)
+    )
+    approved_shorts = (
+        set(config["approved_symbols_short"]) if len(config["approved_symbols_short"]) > 0 else set(sorted_syms)
+    )
+    ideal_longs = [x for x in sorted_syms if x in approved_longs][:n_longs]
+    ideal_shorts = [x for x in sorted_syms if x in approved_shorts][:n_shorts]
 
     free_slots_long = max(0, n_longs - len(current_positions_long))
     active_longs = [sym for sym in ideal_longs if sym in current_positions_long]
@@ -134,42 +139,68 @@ def generate_yaml(
             active_bots.append(elm)
         else:
             bots_on_gs.append(elm)
-    for z in range(0, len(active_bots), config["max_n_panes"]):
-        active_bots_slice = active_bots[z : z + config["max_n_panes"]]
-        yaml += f"- window_name: {config['user']}_normal_{z}\n  layout: "
-        yaml += f"even-vertical\n  shell_command_before:\n    - cd ~/passivbot\n  panes:\n"
-        for sym, long_enabled, short_enabled in active_bots_slice:
-            lm = "n" if long_enabled and lw > 0.0 else "gs"
-            sm = "n" if short_enabled and sw > 0.0 else "gs"
-            conf_path = (
-                config["live_configs_map"][sym] if sym in config["live_configs_map"] else config["default_config_path"]
-            )
-            pane = f"    - shell_command:\n      - python3 passivbot.py {user} {sym} {conf_path} "
+
+    bot_instances = []
+    sleep_duration = -config["sleep_interval"]
+    for sym, long_enabled, short_enabled in active_bots + bots_on_gs:
+        sleep_duration += config["sleep_interval"]
+        lm = "n" if long_enabled and lw > 0.0 else "gs"
+        sm = "n" if short_enabled and sw > 0.0 else "gs"
+        if sym in config["live_configs_map_long"]:
+            conf_path_long = config["live_configs_map_long"][sym]
+        elif sym in config["live_configs_map"]:
+            conf_path_long = config["live_configs_map"][sym]
+        else:
+            conf_path_long = config["default_config_path"]
+
+        if sym not in (shorts_on_gs + active_shorts):
+            conf_path_short = conf_path_long
+        elif sym in config["live_configs_map_short"]:
+            conf_path_short = config["live_configs_map_short"][sym]
+        elif sym in config["live_configs_map"]:
+            conf_path_short = config["live_configs_map"][sym]
+        else:
+            conf_path_short = config["default_config_path"]
+
+        if sym not in (longs_on_gs + active_longs):
+            conf_path_long = conf_path_short
+
+        if conf_path_long == conf_path_short:
+            pane = f"    - shell_command:\n      - sleep {sleep_duration}; python3 passivbot.py {user} {sym} {conf_path_long} "
             pane += f"-lw {lw} -sw {sw} -lm {lm} -sm {sm} -lev {config['leverage']} -cd -pt {config['price_distance_threshold']}"
-            yaml += pane + "\n"
-    if bots_on_gs:
-        for z in range(0, len(bots_on_gs), config["max_n_panes"]):
-            bots_on_gs_slice = bots_on_gs[z : z + config["max_n_panes"]]
-            yaml += (
-                f"- window_name: {config['user']}_gs_{z}\n  layout: even-vertical\n  shell_command_before:\n    - cd ~/passivbot\n  panes:"
-                + "\n"
-            )
-            gs_lw = lw if config["gs_lw"] is None else config["gs_lw"]
-            gs_sw = lw if config["gs_sw"] is None else config["gs_sw"]
-            for sym, _, _ in bots_on_gs_slice:
-                conf_path = (
-                    config["live_configs_map"][sym]
-                    if sym in config["live_configs_map"]
-                    else config["default_config_path"]
-                )
-                pane = f"    - shell_command:\n      - python3 passivbot.py {user} {sym} {conf_path} -lw {gs_lw} "
-                pane += (
-                    f"-sw {gs_sw} -lm gs -sm gs -lev {config['leverage']} -cd -pt {config['price_distance_threshold']}"
-                )
-                for k0, k1 in [("lmm", "gs_mm"), ("lmr", "gs_mr")]:
-                    if config[k1] is not None:
-                        pane += f" -{k0} {config[k1]}"
-                yaml += pane + "\n"
+            bot_instances.append((sym, pane))
+        else:
+            # long and short use different configs
+            long_active = sym in active_longs or sym in current_positions_long
+            short_active = sym in active_shorts or sym in current_positions_short
+            if long_active and short_active:
+                # two separate bot instances for long & short
+                pane = f"    - shell_command:\n      - sleep {sleep_duration}; python3 passivbot.py {user} {sym} {conf_path_long} "
+                pane += f"-lw {lw} -sw {sw} -lm {lm} -sm m -lev {config['leverage']} -cd -pt {config['price_distance_threshold']}"
+                bot_instances.append((sym, pane))
+                pane = f"    - shell_command:\n      - sleep {sleep_duration}; python3 passivbot.py {user} {sym} {conf_path_short} "
+                pane += f"-lw {lw} -sw {sw} -lm m -sm {sm} -lev {config['leverage']} -cd -pt {config['price_distance_threshold']}"
+                bot_instances.append((sym, pane))
+            elif long_active:
+                pane = f"    - shell_command:\n      - sleep {sleep_duration}; python3 passivbot.py {user} {sym} {conf_path_long} "
+                pane += f"-lw {lw} -sw {sw} -lm {lm} -sm {sm} -lev {config['leverage']} -cd -pt {config['price_distance_threshold']}"
+                bot_instances.append((sym, pane))
+            elif short_active:
+                pane = f"    - shell_command:\n      - sleep {sleep_duration}; python3 passivbot.py {user} {sym} {conf_path_short} "
+                pane += f"-lw {lw} -sw {sw} -lm {lm} -sm {sm} -lev {config['leverage']} -cd -pt {config['price_distance_threshold']}"
+                bot_instances.append((sym, pane))
+
+    both_on_gs = False
+    z = 0
+    for sym, pane in bot_instances:
+        if not both_on_gs and sym not in active_longs and sym not in active_shorts:
+            z = 0
+            both_on_gs = True
+        if z % config["max_n_panes"] == 0:
+            yaml += f"- window_name: {config['user']}_{'gs' if both_on_gs else 'normal'}_{z}\n  layout: "
+            yaml += f"even-vertical\n  shell_command_before:\n    - cd {config['passivbot_root_dir']}\n  panes:\n"
+        yaml += pane + "\n"
+        z += 1
     return yaml
 
 
@@ -210,23 +241,16 @@ async def get_current_symbols(cc):
     current_open_orders = []
     poss = await cc.fetch_positions()
     for elm in poss:
-        if elm["contracts"] != 0.0:
+        if elm["contracts"] is not None and elm["contracts"] != 0.0:
             if elm["side"] == "long":
                 current_positions_long.append(elm["symbol"])
             elif elm["side"] == "short":
                 current_positions_short.append(elm["symbol"])
-    if cc.id == "bybit":
-        oos = []
-        delay_s = 0.5
-        for symbol in cc.markets:
-            if symbol.endswith("USDT"):
-                sts = time.time()
-                oosf = await cc.fetch_open_orders(symbol=symbol)
-                spent = time.time() - sts
-                print(f"\r fetching open orders for {symbol}     ", end=" ")
-                oos += oosf
-                time.sleep(max(0.0, delay_s - spent))
-        print()
+    if cc.id == "bitget":
+        oos = await cc.private_mix_get_order_margincoincurrent({"productType": "umcbl"})
+        oos = oos["data"]
+        for i in range(len(oos)):
+            oos[i]["symbol"] = oos[i]["symbol"].replace("_UMCBL", "")
     elif cc.id == "binanceusdm":
         cc.options["warnOnFetchOpenOrdersWithoutSymbol"] = False
         oos = await cc.fetch_open_orders()
@@ -234,13 +258,22 @@ async def get_current_symbols(cc):
         oos = await cc.fetch_open_orders()
     current_open_orders_long, current_open_orders_short = [], []
     for elm in oos:
-        if elm["side"] == "short":
+        pos_side = determine_pos_side_ccxt(elm)
+        if pos_side == "short":
             current_open_orders_short.append(elm["symbol"])
         else:
             current_open_orders_long.append(elm["symbol"])
+
+    current_positions_long = sorted(set(current_positions_long))
+    current_positions_short = sorted(set(current_positions_short))
     current_open_orders_long = sorted(set(current_open_orders_long))
     current_open_orders_short = sorted(set(current_open_orders_short))
-    return current_positions_long, current_positions_short, current_open_orders_long, current_open_orders_short
+    return (
+        current_positions_long,
+        current_positions_short,
+        current_open_orders_long,
+        current_open_orders_short,
+    )
 
 
 async def get_min_costs(cc):
@@ -284,10 +317,46 @@ async def dump_yaml(cc, config):
     min_costs, c_mults = await get_min_costs(cc)
     symbols_map = {sym: sym.replace(":USDT", "").replace("/", "") for sym in min_costs}
     symbols_map_inv = {v: k for k, v in symbols_map.items()}
+
+    for side in ["long", "short"]:
+        if config[f"live_configs_dir_{side}"] and os.path.exists(config[f"live_configs_dir_{side}"]):
+            fnames = sorted([f for f in os.listdir(config[f"live_configs_dir_{side}"]) if f.endswith(".json")])
+            if fnames:
+                for symbol in symbols_map_inv:
+                    fnamesf = [f for f in fnames if symbol in f]
+                    if fnamesf and not any(
+                        [symbol in x for x in [config[f"live_configs_map_{side}"], config["live_configs_map"]]]
+                    ):
+                        config[f"live_configs_map_{side}"][symbol] = os.path.join(
+                            config[f"live_configs_dir_{side}"], fnamesf[0]
+                        )
+
     approved = [symbols_map[k] for k, v in min_costs.items() if v <= max_min_cost and k in symbols_map]
-    if config["approved_symbols_only"]:
-        # only use approved symbols
-        approved = [k for k in approved if k in config["live_configs_map"]]
+    if config["market_age_threshold"] not in ["0", 0, 0.0]:
+        first_timestamp_threshold = 0
+        try:
+            first_timestamp_threshold = date_to_ts2(config["market_age_threshold"])
+        except Exception as e:
+            print(f"invalid param market_age_threshold: {config['market_age_threshold']} {e}")
+        if first_timestamp_threshold:
+            try:
+                first_timestamps = await get_first_ohlcv_timestamps(symbols=list(symbols_map), cc=cc)
+                if first_timestamps:
+                    new_approved = [
+                        s
+                        for s in approved
+                        if (symbols_map_inv[s] in first_timestamps)
+                        and (first_timestamps[symbols_map_inv[s]] < first_timestamp_threshold)
+                    ]
+                    removed = sorted(set(approved) - set(new_approved))
+                    print(f"symbols younger than {config['market_age_threshold']} disapproved: {removed}")
+                    approved = new_approved
+            except:
+                pass
+    approved = sorted(set(approved) - set(config["symbols_to_ignore"]))
+    if config["approved_symbols_long"] and config["approved_symbols_short"]:
+        approved = set(approved) & (set(config["approved_symbols_long"]) | set(config["approved_symbols_short"]))
+
     print("getting current bots...")
     (
         current_positions_long,
@@ -295,10 +364,18 @@ async def dump_yaml(cc, config):
         current_open_orders_long,
         current_open_orders_short,
     ) = await get_current_symbols(cc)
+
     current_positions_long = [symbols_map[s] if s in symbols_map else s for s in current_positions_long]
     current_positions_short = [symbols_map[s] if s in symbols_map else s for s in current_positions_short]
     current_open_orders_long = [symbols_map[s] if s in symbols_map else s for s in current_open_orders_long]
     current_open_orders_short = [symbols_map[s] if s in symbols_map else s for s in current_open_orders_short]
+
+    current_positions_long = sorted(set(current_positions_long) - set(config["symbols_to_ignore"]))
+    current_positions_short = sorted(set(current_positions_short) - set(config["symbols_to_ignore"]))
+    current_open_orders_long = sorted(set(current_open_orders_long) - set(config["symbols_to_ignore"]))
+    current_open_orders_short = sorted(set(current_open_orders_short) - set(config["symbols_to_ignore"]))
+
+    print("ignoring symbols:", config["symbols_to_ignore"])
     print("current_positions_long", sorted(current_positions_long))
     print("current_positions_short", sorted(current_positions_short))
     print("current_open_orders long", sorted(current_open_orders_long))
@@ -306,7 +383,7 @@ async def dump_yaml(cc, config):
     print("getting ohlcvs...")
     ohs = await get_ohlcvs(cc, [symbols_map_inv[sym] for sym in approved], config)
     max_len_ohlcv = max([len(ohs[s]) for s in ohs])
-    print('max_len_ohlcv', max_len_ohlcv)
+    print("max_len_ohlcv", max_len_ohlcv)
     ohs = {symbols_map[k]: v for k, v in ohs.items() if len(v) == max_len_ohlcv}
     for sym in ohs:
         for i in range(len(ohs[sym])):
@@ -331,9 +408,13 @@ async def main():
         "okx": "okx",
         "bybit": "bybit",
         "binance": "binanceusdm",
+        "bitget": "bitget",
     }
     parser = argparse.ArgumentParser(prog="forager", description="start forager")
     parser.add_argument("forager_config_path", type=str, help="path to forager config")
+    parser.add_argument(
+        "-n", "--noloop", "--no-loop", "--no_loop", dest="no_loop", help="break after first iter", action="store_true"
+    )
     args = parser.parse_args()
     config = hjson.load(open(args.forager_config_path))
     config["yaml_filepath"] = f"{config['user']}.yaml"
@@ -341,20 +422,40 @@ async def main():
     for key, value in [
         ("volume_clip_threshold", 0.5),
         ("unilateralness_clip_threshold", 0.5),
+        ("noisiness_clip_threshold", 0.5),
         ("price_distance_threshold", 0.5),
         ("max_n_panes", 8),
         ("n_ohlcvs", 100),
         ("ohlcv_interval", "15m"),
         ("leverage", 10),
+        ("symbols_to_ignore", []),
+        ("live_configs_map_long", {}),
+        ("live_configs_map_short", {}),
+        ("live_configs_dir_long", ""),
+        ("live_configs_dir_short", ""),
+        ("update_interval_minutes", 60),
+        ("market_age_threshold", 0),
+        ("passivbot_root_dir", "~/passivbot"),
+        ("sleep_interval", 5),
     ]:
         if key not in config:
             config[key] = value
+    sides = ["long", "short"]
+    if "approved_symbols_only" in config:
+        for side in sides:
+            if config["approved_symbols_only"]:
+                if f"approved_symbols_{side}" not in config:
+                    config[f"approved_symbols_{side}"] = sorted(
+                        set(config["live_configs_map"]) | set(config[f"live_configs_map_{side}"])
+                    )
+            else:
+                config[f"approved_symbols_{side}"] = []
     exchange, key, secret, passphrase = load_exchange_key_secret_passphrase(config["user"])
-    cc = getattr(ccxt, exchange_map[exchange])({"apiKey": key, "secret": secret, "password": passphrase})
     max_n_tries_per_hour = 5
     error_timestamps = []
     while True:
         try:
+            cc = getattr(ccxt, exchange_map[exchange])({"apiKey": key, "secret": secret, "password": passphrase})
             await dump_yaml(cc, config)
             print("waiting one minute to avoid API rate limiting...")
             for i in range(60, -1, -1):
@@ -363,7 +464,9 @@ async def main():
             print()
             subprocess.run(["tmux", "kill-session", "-t", config["user"]])
             subprocess.run(["tmuxp", "load", "-d", config["yaml_filepath"]])
-            for i in range(3600, -1, -1):
+            if args.no_loop:
+                return
+            for i in range(config["update_interval_minutes"] * 60, -1, -1):
                 time.sleep(1)
                 print(f"\rcountdown: {i}    ", end=" ")
             print()

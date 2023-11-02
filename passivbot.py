@@ -39,11 +39,11 @@ from njit_funcs import (
     calc_close_grid_long,
     calc_close_grid_short,
     calc_upnl,
-    calc_entry_grid_long,
-    calc_entry_grid_short,
     calc_samples,
     calc_emas_last,
     calc_ema,
+    calc_delay_between_fills_ms_bid,
+    calc_delay_between_fills_ms_ask,
 )
 from njit_funcs_neat_grid import (
     calc_neat_grid_long,
@@ -79,6 +79,7 @@ class Bot:
 
         self.hedge_mode = self.config["hedge_mode"] = True
         self.set_config(self.config)
+        self.server_time = utc_ms()
 
         self.ts_locked = {
             k: 0.0
@@ -112,12 +113,15 @@ class Bot:
             "clock_entry_short": 0,
             "clock_close_long": 0,
             "clock_close_short": 0,
+            "unstuck_close_long": 0,
+            "unstuck_close_short": 0,
         }
         self.price = 0.0
         self.ob = [0.0, 0.0]
         self.emas_long = np.zeros(3)
         self.emas_short = np.zeros(3)
         self.ema_sec = 0
+        self.auto_unstuck_on_timer = True
 
         self.n_orders_per_execution = 2
         self.delay_between_executions = 3
@@ -164,6 +168,14 @@ class Bot:
                 + "It must be greater than zero and less than or equal to one.  Defaulting to 1.0."
             )
             config["cross_wallet_pct"] = 1.0
+        if self.passivbot_mode in ["neat_grid", "recursive_grid"]:
+            self.auto_unstuck_on_timer = any(
+                [
+                    self.config[side][key] != 0.0
+                    for side in ["long", "short"]
+                    for key in ["auto_unstuck_delay_minutes", "auto_unstuck_qty_pct"]
+                ]
+            )
         self.config["do_long"] = config["long"]["enabled"]
         self.config["do_short"] = config["short"]["enabled"]
         self.ema_spans_long = np.array(
@@ -199,6 +211,8 @@ class Bot:
         if self.passivbot_mode == "clock":
             self.xk["auto_unstuck_ema_dist"] = (0.0, 0.0)
             self.xk["auto_unstuck_wallet_exposure_threshold"] = (0.0, 0.0)
+            self.xk["auto_unstuck_delay_minutes"] = (0.0, 0.0)
+            self.xk["auto_unstuck_qty_pct"] = (0.0, 0.0)
             self.xk["delay_between_fills_ms_entry"] = (
                 self.config["long"]["delay_between_fills_minutes_entry"] * 60 * 1000.0,
                 self.config["short"]["delay_between_fills_minutes_entry"] * 60 * 1000.0,
@@ -214,20 +228,21 @@ class Bot:
             self.init_fills(),
             self.init_exchange_config(),
             self.init_order_book(),
-            self.init_emas(),
+            self.update_server_time(),
+            self.update_last_fills_timestamps(),
         )
+        await self.init_emas()
         print("done")
-        if "price_step_custom" in self.config and self.config["price_step_custom"] is not None:
+        if "price_step_custom" in self.config and self.config["price_step_custom"] not in [None, 0.0]:
             new_price_step = max(
                 self.price_step, round_(self.config["price_step_custom"], self.price_step)
             )
             if new_price_step != self.price_step:
                 logging.info(f"changing price step from {self.price_step} to {new_price_step}")
                 self.price_step = self.config["price_step"] = self.xk["price_step"] = new_price_step
-        elif (
-            "price_precision_multiplier" in self.config
-            and self.config["price_precision_multiplier"] is not None
-        ):
+        elif "price_precision_multiplier" in self.config and self.config[
+            "price_precision_multiplier"
+        ] not in [None, 0.0]:
             new_price_step = max(
                 self.price_step,
                 round_(self.ob[0] * self.config["price_precision_multiplier"], self.price_step),
@@ -260,51 +275,66 @@ class Bot:
         self.alpha__long = 1 - self.alpha_long
         self.alpha_short = 2 / (self.ema_spans_short + 1)
         self.alpha__short = 1 - self.alpha_short
-        self.ema_min = int(round(time.time() // 60 * 60))
+        self.ema_minute = int(round(time.time() // 60 * 60))
         return samples1m
 
     async def init_emas(self) -> None:
-        ohlcvs1m = await self.fetch_ohlcvs(interval="1m")
-        max_span = max(list(self.ema_spans_long) + list(self.ema_spans_short))
-        for mins, interval in zip([5, 15, 30, 60, 60 * 4], ["5m", "15m", "30m", "1h", "4h"]):
-            if max_span <= len(ohlcvs1m) * mins:
-                break
-        ohlcvs = await self.fetch_ohlcvs(interval=interval)
-        ohlcvs = {ohlcv["timestamp"]: ohlcv for ohlcv in ohlcvs + ohlcvs1m}
-        if self.ohlcv:
-            return await self.init_emas_1m(ohlcvs)
-        samples1s = calc_samples(
-            numpyize(
-                [
-                    [o["timestamp"], o["volume"], o["close"]]
-                    for o in sorted(ohlcvs.values(), key=lambda x: x["timestamp"])
-                ]
+        ohlcvs1m = None
+        try:
+            ohlcvs1m = await self.fetch_ohlcvs(interval="1m")
+            max_span = max(list(self.ema_spans_long) + list(self.ema_spans_short))
+            for mins, interval in zip([5, 15, 30, 60, 60 * 4], ["5m", "15m", "30m", "1h", "4h"]):
+                if max_span <= len(ohlcvs1m) * mins:
+                    break
+            ohlcvs = await self.fetch_ohlcvs(interval=interval)
+            ohlcvs = {ohlcv["timestamp"]: ohlcv for ohlcv in ohlcvs + ohlcvs1m}
+            if self.ohlcv:
+                return await self.init_emas_1m(ohlcvs)
+            samples1s = calc_samples(
+                numpyize(
+                    [
+                        [o["timestamp"], o["volume"], o["close"]]
+                        for o in sorted(ohlcvs.values(), key=lambda x: x["timestamp"])
+                    ]
+                )
             )
-        )
-        spans1s_long = np.array(self.ema_spans_long) * 60
-        spans1s_short = np.array(self.ema_spans_short) * 60
-        self.emas_long = calc_emas_last(samples1s[:, 2], spans1s_long)
-        self.emas_short = calc_emas_last(samples1s[:, 2], spans1s_short)
-        self.alpha_long = 2 / (spans1s_long + 1)
-        self.alpha__long = 1 - self.alpha_long
-        self.alpha_short = 2 / (spans1s_short + 1)
-        self.alpha__short = 1 - self.alpha_short
-        self.ema_sec = int(time.time())
-        # return samples1s
+            spans1s_long = np.array(self.ema_spans_long) * 60
+            spans1s_short = np.array(self.ema_spans_short) * 60
+            self.emas_long = calc_emas_last(samples1s[:, 2], spans1s_long)
+            self.emas_short = calc_emas_last(samples1s[:, 2], spans1s_short)
+            self.alpha_long = 2 / (spans1s_long + 1)
+            self.alpha__long = 1 - self.alpha_long
+            self.alpha_short = 2 / (spans1s_short + 1)
+            self.alpha__short = 1 - self.alpha_short
+            self.ema_sec = int(time.time())
+        except Exception as e:
+            logging.error(f"error with init_emas {e}")
+            traceback.print_exc()
+            print_async_exception(ohlcvs1m)
+            logging.info("using current market price as starting EMA")
+
+            self.emas_long = np.repeat(self.price, 3)
+            self.emas_short = np.repeat(self.price, 3)
+            self.alpha_long = 2 / (np.array(self.ema_spans_long) * (1 if self.ohlcv else 60) + 1)
+            self.alpha__long = 1 - self.alpha_long
+            self.alpha_short = 2 / (np.array(self.ema_spans_short) * (1 if self.ohlcv else 60) + 1)
+            self.alpha__short = 1 - self.alpha_short
+            self.ema_sec = int(time.time())
+            self.ema_minute = int(round(time.time() // 60 * 60))
 
     def update_emas_1m(self, price: float, prev_price: float) -> None:
-        now_min = int(round(time.time() // 60 * 60))
-        if now_min <= self.ema_min:
+        now_minute = int(round(time.time() // 60 * 60))
+        if now_minute <= self.ema_minute:
             return
-        while self.ema_min < int(round(now_min - 60)):
+        while self.ema_minute < int(round(now_minute - 60)):
             self.emas_long = calc_ema(self.alpha_long, self.alpha__long, self.emas_long, prev_price)
             self.emas_short = calc_ema(
                 self.alpha_short, self.alpha__short, self.emas_short, prev_price
             )
-            self.ema_min += 60
+            self.ema_minute += 60
         self.emas_long = calc_ema(self.alpha_long, self.alpha__long, self.emas_long, price)
         self.emas_short = calc_ema(self.alpha_short, self.alpha__short, self.emas_short, price)
-        self.ema_min = now_min
+        self.ema_minute = now_minute
 
     def update_emas(self, price: float, prev_price: float) -> None:
         if self.ohlcv:
@@ -341,6 +371,18 @@ class Bot:
             return False
         finally:
             self.ts_released["update_open_orders"] = time.time()
+
+    async def update_ticker(self):
+        try:
+            self.ticker = await self.fetch_ticker()
+            self.ob = [self.ticker["bid"], self.ticker["ask"]]
+            self.price = self.ticker["last"]
+            return True
+
+        except Exception as e:
+            logging.error(f"error with update open orders {e}")
+            traceback.print_exc()
+            return False
 
     def adjust_wallet_balance(self, balance: float) -> float:
         return (
@@ -419,12 +461,20 @@ class Bot:
             self.ts_released["update_position"] = time.time()
 
     async def init_fills(self, n_days_limit=60):
-        self.fills = await self.fetch_fills()
+        fills = None
+        try:
+            fills = await self.fetch_fills()
+            self.fills = fills
+            return True
+        except Exception as e:
+            self.fills = []
+            traceback.print_exc()
+            print_async_exception(fills)
+            return False
 
     async def update_fills(self) -> [dict]:
         """
         fetches recent fills
-        returns list of new fills
         """
         if self.ts_locked["update_fills"] > self.ts_released["update_fills"]:
             return
@@ -456,7 +506,8 @@ class Bot:
             orders = None
             orders_to_create = [order for order in orders_to_create if self.order_is_valid(order)]
             orders = await self.execute_orders(orders_to_create)
-            for order in sorted(orders, key=lambda x: calc_diff(x["price"], self.price)):
+            orders_f = [x for x in orders if "price" in x]
+            for order in sorted(orders_f, key=lambda x: calc_diff(x["price"], self.price)):
                 if "side" in order:
                     logging.info(
                         f'  created order {order["symbol"]} {order["side"]: <4} '
@@ -472,12 +523,12 @@ class Bot:
             self.ts_released["create_orders"] = time.time()
 
     async def cancel_orders(self, orders_to_cancel: [dict]) -> [dict]:
+        if not orders_to_cancel:
+            return
         if self.ts_locked["cancel_orders"] > self.ts_released["cancel_orders"]:
             return
         self.ts_locked["cancel_orders"] = time.time()
         try:
-            if not orders_to_cancel:
-                return
             deletions, orders_to_cancel_dedup, oo_ids = [], [], set()
             for o in orders_to_cancel:
                 if o["order_id"] not in oo_ids:
@@ -577,32 +628,8 @@ class Bot:
                         self.xk["wallet_exposure_limit"][0],
                         self.xk["auto_unstuck_ema_dist"][0],
                         self.xk["auto_unstuck_wallet_exposure_threshold"][0],
-                    )
-                elif self.passivbot_mode == "static_grid":
-                    entries_long = calc_entry_grid_long(
-                        balance,
-                        psize_long,
-                        pprice_long,
-                        self.ob[0],
-                        min(self.emas_long),
-                        self.xk["inverse"],
-                        self.xk["do_long"],
-                        self.xk["qty_step"],
-                        self.xk["price_step"],
-                        self.xk["min_qty"],
-                        self.xk["min_cost"],
-                        self.xk["c_mult"],
-                        self.xk["grid_span"][0],
-                        self.xk["wallet_exposure_limit"][0],
-                        self.xk["max_n_entry_orders"][0],
-                        self.xk["initial_qty_pct"][0],
-                        self.xk["initial_eprice_ema_dist"][0],
-                        self.xk["eprice_pprice_diff"][0],
-                        self.xk["secondary_allocation"][0],
-                        self.xk["secondary_pprice_diff"][0],
-                        self.xk["eprice_exp_base"][0],
-                        self.xk["auto_unstuck_wallet_exposure_threshold"][0],
-                        self.xk["auto_unstuck_ema_dist"][0],
+                        self.xk["auto_unstuck_delay_minutes"][0]
+                        or self.xk["auto_unstuck_qty_pct"][0],
                     )
                 elif self.passivbot_mode == "neat_grid":
                     entries_long = calc_neat_grid_long(
@@ -627,6 +654,8 @@ class Bot:
                         self.xk["eprice_exp_base"][0],
                         self.xk["auto_unstuck_wallet_exposure_threshold"][0],
                         self.xk["auto_unstuck_ema_dist"][0],
+                        self.xk["auto_unstuck_delay_minutes"][0]
+                        or self.xk["auto_unstuck_qty_pct"][0],
                     )
                 elif self.passivbot_mode == "clock":
                     entries_long = [
@@ -635,8 +664,8 @@ class Bot:
                             psize_long,
                             pprice_long,
                             self.ob[0],
-                            min(self.emas_long),
-                            utc_ms(),
+                            self.emas_long,
+                            self.server_time,
                             0
                             if psize_long == 0.0
                             else self.last_fills_timestamps["clock_entry_long"],
@@ -677,6 +706,8 @@ class Bot:
                     pprice_long,
                     self.ob[1],
                     max(self.emas_long),
+                    self.server_time,
+                    self.last_fills_timestamps["unstuck_close_long"],
                     self.xk["inverse"],
                     self.xk["qty_step"],
                     self.xk["price_step"],
@@ -689,6 +720,8 @@ class Bot:
                     self.xk["n_close_orders"][0],
                     self.xk["auto_unstuck_wallet_exposure_threshold"][0],
                     self.xk["auto_unstuck_ema_dist"][0],
+                    self.xk["auto_unstuck_delay_minutes"][0],
+                    self.xk["auto_unstuck_qty_pct"][0],
                 )
                 if self.passivbot_mode == "clock":
                     clock_close_long = calc_clock_close_long(
@@ -696,8 +729,8 @@ class Bot:
                         psize_long,
                         pprice_long,
                         self.ob[1],
-                        max(self.emas_long),
-                        utc_ms(),
+                        self.emas_long,
+                        self.server_time,
                         self.last_fills_timestamps["clock_close_long"],
                         self.xk["inverse"],
                         self.xk["qty_step"],
@@ -723,6 +756,8 @@ class Bot:
                             pprice_long,
                             self.ob[1],
                             max(self.emas_long),
+                            self.server_time,
+                            self.last_fills_timestamps["unstuck_close_long"],
                             self.xk["inverse"],
                             self.xk["qty_step"],
                             self.xk["price_step"],
@@ -735,6 +770,8 @@ class Bot:
                             self.xk["n_close_orders"][0],
                             self.xk["auto_unstuck_wallet_exposure_threshold"][0],
                             self.xk["auto_unstuck_ema_dist"][0],
+                            self.xk["auto_unstuck_delay_minutes"][0],
+                            self.xk["auto_unstuck_qty_pct"][0],
                         )
                 orders += [
                     {
@@ -785,6 +822,8 @@ class Bot:
                         self.xk["wallet_exposure_limit"][1],
                         self.xk["auto_unstuck_ema_dist"][1],
                         self.xk["auto_unstuck_wallet_exposure_threshold"][1],
+                        self.xk["auto_unstuck_delay_minutes"][1]
+                        or self.xk["auto_unstuck_qty_pct"][1],
                     )
                 elif self.passivbot_mode == "neat_grid":
                     entries_short = calc_neat_grid_short(
@@ -809,32 +848,8 @@ class Bot:
                         self.xk["eprice_exp_base"][1],
                         self.xk["auto_unstuck_wallet_exposure_threshold"][1],
                         self.xk["auto_unstuck_ema_dist"][1],
-                    )
-                elif self.passivbot_mode == "static_grid":
-                    entries_short = calc_entry_grid_short(
-                        balance,
-                        psize_short,
-                        pprice_short,
-                        self.ob[1],
-                        max(self.emas_short),
-                        self.xk["inverse"],
-                        self.xk["do_short"],
-                        self.xk["qty_step"],
-                        self.xk["price_step"],
-                        self.xk["min_qty"],
-                        self.xk["min_cost"],
-                        self.xk["c_mult"],
-                        self.xk["grid_span"][1],
-                        self.xk["wallet_exposure_limit"][1],
-                        self.xk["max_n_entry_orders"][1],
-                        self.xk["initial_qty_pct"][1],
-                        self.xk["initial_eprice_ema_dist"][1],
-                        self.xk["eprice_pprice_diff"][1],
-                        self.xk["secondary_allocation"][1],
-                        self.xk["secondary_pprice_diff"][1],
-                        self.xk["eprice_exp_base"][1],
-                        self.xk["auto_unstuck_wallet_exposure_threshold"][1],
-                        self.xk["auto_unstuck_ema_dist"][1],
+                        self.xk["auto_unstuck_delay_minutes"][1]
+                        or self.xk["auto_unstuck_qty_pct"][1],
                     )
                 elif self.passivbot_mode == "clock":
                     entries_short = [
@@ -843,8 +858,8 @@ class Bot:
                             psize_short,
                             pprice_short,
                             self.ob[1],
-                            max(self.emas_short),
-                            utc_ms(),
+                            self.emas_short,
+                            self.server_time,
                             0
                             if psize_short == 0.0
                             else self.last_fills_timestamps["clock_entry_short"],
@@ -885,6 +900,8 @@ class Bot:
                     pprice_short,
                     self.ob[0],
                     min(self.emas_short),
+                    self.server_time,
+                    self.last_fills_timestamps["unstuck_close_short"],
                     self.xk["inverse"],
                     self.xk["qty_step"],
                     self.xk["price_step"],
@@ -897,6 +914,8 @@ class Bot:
                     self.xk["n_close_orders"][1],
                     self.xk["auto_unstuck_wallet_exposure_threshold"][1],
                     self.xk["auto_unstuck_ema_dist"][1],
+                    self.xk["auto_unstuck_delay_minutes"][1],
+                    self.xk["auto_unstuck_qty_pct"][1],
                 )
                 if self.passivbot_mode == "clock":
                     clock_close_short = calc_clock_close_short(
@@ -904,8 +923,8 @@ class Bot:
                         psize_short,
                         pprice_short,
                         self.ob[0],
-                        min(self.emas_short),
-                        utc_ms(),
+                        self.emas_short,
+                        self.server_time,
                         self.last_fills_timestamps["clock_close_short"],
                         self.xk["inverse"],
                         self.xk["qty_step"],
@@ -934,6 +953,8 @@ class Bot:
                             pprice_short,
                             self.ob[0],
                             min(self.emas_short),
+                            self.server_time,
+                            self.last_fills_timestamps["unstuck_close_short"],
                             self.xk["inverse"],
                             self.xk["qty_step"],
                             self.xk["price_step"],
@@ -946,6 +967,8 @@ class Bot:
                             self.xk["n_close_orders"][1],
                             self.xk["auto_unstuck_wallet_exposure_threshold"][1],
                             self.xk["auto_unstuck_ema_dist"][1],
+                            self.xk["delay_between_fills_ms_close"][1],
+                            self.xk["wallet_exposure_limit"][1],
                         )
                 orders += [
                     {
@@ -1081,7 +1104,7 @@ class Bot:
         await self.cancel_and_create()
 
     def heartbeat_print(self):
-        logging.info(f"heartbeat {self.symbol}")
+        logging.info(f"heartbeat {self.symbol}  ")
         self.log_position_long()
         self.log_position_short()
         liq_price = self.position["long"]["liquidation_price"]
@@ -1359,27 +1382,121 @@ class Bot:
         finally:
             self.ts_released["update_last_fills_timestamps"] = time.time()
 
+    async def update_server_time(self):
+        server_time = None
+        try:
+            server_time = await self.get_server_time()
+            self.server_time = server_time
+            return True
+        except Exception as e:
+            self.server_time = utc_ms()
+            traceback.print_exc()
+            print_async_exception(server_time)
+            return False
+
     async def start_ohlcv_mode(self):
         logging.info("starting bot...")
+        refresh_interval = 60
+        offset_adjusted = self.countdown_offset % refresh_interval
         while True:
             now = time.time()
-            # print('secs until next', ((now + 60) - now % 60) - now)
-            refresh_interval = 60
-            while int(now) % refresh_interval != (self.countdown_offset % refresh_interval):
+            secs_left = refresh_interval - (int(now) + offset_adjusted) % refresh_interval
+            for i in range(secs_left, -1, -1):
                 if self.stop_websocket:
                     break
-                await asyncio.sleep(0.5)
-                now = time.time()
                 if self.countdown:
-                    print(
-                        f"\rcountdown: {((now + 60) - now % 60) - now:.1f} last price: {self.price}      ",
-                        end=" ",
-                    )
+                    line = f"\rcountdown: {i} last price: {self.price}"
+                    line += " | mins delay until next: "
+                    try:
+                        res = self.calc_minutes_until_next_orders()
+                        if self.passivbot_mode == "clock":
+                            line += f"entry long: {res['entry_long']:.1f}, close long: {res['close_long']:.1f}"
+                            line += " | "
+                            line += f"entry short: {res['entry_short']:.1f}, close short: {res['close_short']:.1f}"
+                        else:
+                            line += f"AU close long: {res['close_long']:.1f} | "
+                            line += f"AU close short: {res['close_short']:.1f}"
+                    except Exception as e:
+                        print("error computing minutes until next order", e)
+                        traceback.print_exc()
+                    if i == 0:
+                        print("\r" + " " * (len(line) + 10), end=" ")
+                    else:
+                        print(line + "                ", end=" ")
+                await asyncio.sleep(1)
             if self.stop_websocket:
                 break
             await asyncio.sleep(1.0)
             await self.on_minute_mark()
             await asyncio.sleep(1.0)
+
+    def calc_minutes_until_next_orders(self):
+        res = {"entry_long": 0.0, "close_long": 0.0, "entry_short": 0.0, "close_short": 0.0}
+        if self.passivbot_mode in ["recursive_grid", "neat_grid"]:
+            mins_since_prev_AU_close_long = (
+                (self.server_time - self.last_fills_timestamps["unstuck_close_long"]) / 1000 / 60
+            )
+            res["close_long"] = max(
+                0.0, self.xk["auto_unstuck_delay_minutes"][0] - mins_since_prev_AU_close_long
+            )
+            mins_since_prev_AU_close_short = (
+                (self.server_time - self.last_fills_timestamps["unstuck_close_short"]) / 1000 / 60
+            )
+            res["close_short"] = max(
+                0.0, self.xk["auto_unstuck_delay_minutes"][1] - mins_since_prev_AU_close_short
+            )
+            return res
+        if self.position["long"]["size"] != 0.0:
+            millis_delay_next_entry_long = calc_delay_between_fills_ms_bid(
+                self.position["long"]["price"],
+                self.price,
+                self.xk["delay_between_fills_ms_entry"][0],
+                self.xk["delay_weight_entry"][0],
+            )
+            millis_since_prev_close_long = (
+                self.server_time - self.last_fills_timestamps["clock_entry_long"]
+            )
+            res["entry_long"] = max(
+                0.0, (millis_delay_next_entry_long - millis_since_prev_close_long) / 1000 / 60
+            )
+        millis_delay_next_close_long = calc_delay_between_fills_ms_ask(
+            self.position["long"]["price"],
+            self.price,
+            self.xk["delay_between_fills_ms_close"][0],
+            self.xk["delay_weight_close"][0],
+        )
+        millis_since_prev_close_long = (
+            self.server_time - self.last_fills_timestamps["clock_close_long"]
+        )
+        res["close_long"] = max(
+            0.0, (millis_delay_next_close_long - millis_since_prev_close_long) / 1000 / 60
+        )
+        if self.position["short"]["size"] != 0.0:
+            millis_delay_next_entry_short = calc_delay_between_fills_ms_ask(
+                self.position["short"]["price"],
+                self.price,
+                self.xk["delay_between_fills_ms_entry"][1],
+                self.xk["delay_weight_entry"][1],
+            )
+            millis_since_prev_close_short = (
+                self.server_time - self.last_fills_timestamps["clock_entry_short"]
+            )
+            res["entry_short"] = max(
+                0.0, (millis_delay_next_entry_short - millis_since_prev_close_short) / 1000 / 60
+            )
+        millis_delay_next_close_short = calc_delay_between_fills_ms_bid(
+            self.position["short"]["price"],
+            self.price,
+            self.xk["delay_between_fills_ms_close"][1],
+            self.xk["delay_weight_close"][1],
+        )
+        millis_since_prev_close_short = (
+            self.server_time - self.last_fills_timestamps["clock_close_short"]
+        )
+        res["close_short"] = max(
+            0.0, (millis_delay_next_close_short - millis_since_prev_close_short) / 1000 / 60
+        )
+        return res
 
     async def on_minute_mark(self):
         # called each whole minute
@@ -1390,11 +1507,19 @@ class Bot:
                 # print heartbeat once an hour
                 self.heartbeat_print()
                 self.heartbeat_ts = time.time()
+        except Exception as e:
+            logging.error(f"error with printing heartbeat {e}")
+        try:
             self.prev_price = self.ob[0]
             prev_pos = self.position.copy()
-            to_update = [self.update_position(), self.update_open_orders(), self.init_order_book()]
-            if self.passivbot_mode == "clock":
+            to_update = [
+                self.update_position(),
+                self.update_open_orders(),
+                self.init_order_book(),
+            ]
+            if self.passivbot_mode == "clock" or self.auto_unstuck_on_timer:
                 to_update.append(self.update_last_fills_timestamps())
+                to_update.append(self.update_server_time())
             res = await asyncio.gather(*to_update)
             self.update_emas(self.ob[0], self.prev_price)
             """
@@ -1406,7 +1531,7 @@ class Bot:
             print(res)
             """
             if not all(res):
-                reskeys = ["pos", "open orders", "order book", "last fills"]
+                reskeys = ["pos", "open orders", "order book", "last fills", "server_time"]
                 line = "error with "
                 for i in range(len(to_update)):
                     if not to_update[i]:
@@ -1593,7 +1718,7 @@ async def main() -> None:
         required=False,
         dest="price_distance_threshold",
         default=0.5,
-        help="only create limit orders closer to price than threshold.  default=0.5 (50%)",
+        help="only create limit orders closer to price than threshold.  default=0.5 (50%%)",
     )
     parser.add_argument(
         "-ak",
@@ -1634,7 +1759,7 @@ async def main() -> None:
         required=False,
         dest="price_precision_multiplier",
         default=None,
-        help="Override price step with round_dynamic(market_price * price_precision, 1).  Suggested val 0.0001",
+        help="Override price step with market_price * price_precision_multiplier rounded to one significant digit. Suggested val 0.0001. Set to 0.0 to disable.",
     )
     parser.add_argument(
         "-ps",
@@ -1644,7 +1769,7 @@ async def main() -> None:
         required=False,
         dest="price_step_custom",
         default=None,
-        help="Override price step with custom price step.  Takes precedence over -pp",
+        help="Override price step with custom price step.  Takes precedence over -pp. Set to 0.0 to disable.",
     )
     parser.add_argument(
         "-co",
@@ -1665,7 +1790,7 @@ async def main() -> None:
         default=None,
         nargs="?",
         const="y",
-        help="if no arg or [y/yes], use 1m ohlcv instead of 1s ticks, overriding param ohlcv from config/backtest/default.hjson",
+        help="if no arg or [y/yes], use 1m ohlcv instead of 1s ticks",
     )
 
     float_kwargs = [
@@ -1734,6 +1859,15 @@ async def main() -> None:
             config["ohlcv"] = True
         else:
             if args.ohlcv.lower() in ["y", "yes", "t", "true"]:
+                config["ohlcv"] = True
+            elif any(
+                [
+                    config[side][key] != 0.0
+                    for side in ["long", "short"]
+                    for key in ["auto_unstuck_delay_minutes", "auto_unstuck_qty_pct"]
+                ]
+            ):
+                # force ohlcv mode if auto unstuck is on timer
                 config["ohlcv"] = True
             else:
                 config["ohlcv"] = False
@@ -1828,9 +1962,14 @@ async def main() -> None:
 
         bot = await create_binance_bot_spot(config)
     elif config["exchange"] == "bybit":
-        from procedures import create_bybit_bot
+        if "spot" in config["market_type"]:
+            from procedures import create_bybit_bot_spot
 
-        bot = await create_bybit_bot(config)
+            bot = await create_bybit_bot_spot(config)
+        else:
+            from procedures import create_bybit_bot
+
+            bot = await create_bybit_bot(config)
     elif config["exchange"] == "bitget":
         from procedures import create_bitget_bot
 
@@ -1846,6 +1985,11 @@ async def main() -> None:
 
         config["ohlcv"] = True
         bot = await create_kucoin_bot(config)
+    elif config["exchange"] == "bingx":
+        from procedures import create_bingx_bot
+
+        config["ohlcv"] = True
+        bot = await create_bingx_bot(config)
     else:
         raise Exception("unknown exchange", config["exchange"])
 
@@ -1868,5 +2012,5 @@ if __name__ == "__main__":
         logging.error(f"There was an error starting the bot: {e}")
         traceback.print_exc()
     finally:
-        logging.error("Passivbot was stopped succesfully")
+        logging.info("Passivbot was stopped succesfully")
         os._exit(0)

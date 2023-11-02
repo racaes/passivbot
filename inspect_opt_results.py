@@ -21,6 +21,19 @@ from pure_funcs import (
 from njit_funcs import round_dynamic
 
 
+def shorten(key):
+    key_ = key
+    for src, dst in [
+        ("weighted", "w"),
+        ("exposure", "exp"),
+        ("distance", "dist"),
+        ("ratio", "rt"),
+        ("mean_of_10_worst", "10_worst_mean"),
+    ]:
+        key_ = key_.replace(src, dst)
+    return key_
+
+
 def main():
 
     parser = argparse.ArgumentParser(prog="view conf", description="inspect conf")
@@ -30,14 +43,16 @@ def main():
         ("pss", "maximum_pa_distance_std_short"),
         ("pml", "maximum_pa_distance_mean_long"),
         ("pms", "maximum_pa_distance_mean_short"),
+        ("pwl", "maximum_pa_distance_1pct_worst_mean_long"),
+        ("pws", "maximum_pa_distance_1pct_worst_mean_short"),
         ("pll", "maximum_loss_profit_ratio_long"),
         ("pls", "maximum_loss_profit_ratio_short"),
         ("hsl", "maximum_hrs_stuck_max_long"),
         ("hss", "maximum_hrs_stuck_max_short"),
-        ("erl", "minimum_eqbal_ratio_mean_of_10_worst_long"),
-        ("ers", "minimum_eqbal_ratio_mean_of_10_worst_short"),
-        ("esl", "maximum_eqbal_ratio_std_long"),
-        ("ess", "maximum_eqbal_ratio_std_short"),
+        ("exl", "maximum_exposure_ratios_mean_long"),
+        ("exs", "maximum_exposure_ratios_mean_short"),
+        ("tel", "maximum_time_at_max_exposure_long"),
+        ("tes", "maximum_time_at_max_exposure_short"),
         ("ct", "clip_threshold"),
     ]
     for k0, k1 in weights_keys:
@@ -60,6 +75,15 @@ def main():
         help="inspect particular config of given index",
     )
     parser.add_argument(
+        "-oc",
+        "--optimize_config",
+        type=str,
+        required=False,
+        dest="optimize_config_path",
+        default="configs/optimize/default.hjson",
+        help="optimize config hjson file",
+    )
+    parser.add_argument(
         "-d",
         "--dump_live_config",
         action="store_true",
@@ -68,7 +92,7 @@ def main():
 
     args = parser.parse_args()
 
-    opt_config = hjson.load(open("configs/optimize/default.hjson"))
+    opt_config = hjson.load(open(args.optimize_config_path))
     minsmaxs = {}
     for _, k1 in weights_keys:
         minsmaxs[k1] = opt_config[k1] if getattr(args, k1) is None else getattr(args, k1)
@@ -96,6 +120,7 @@ def main():
             scores_res["individual_scores"],
             scores_res["keys"],
         )
+        keys = keys[:1] + [("adg_per_exposure", True)] + keys[1:]
         for side in sides:
             all_scores[-1][side] = {
                 "config": cfg[side],
@@ -121,7 +146,7 @@ def main():
     if os.path.exists(table_filepath):
         os.remove(table_filepath)
     for side in sides:
-        row_headers = ["symbol"] + [k[0] for k in keys] + ["n_days", "score"]
+        row_headers = ["symbol"] + [shorten(k[0]) for k in keys] + ["n_days", "score"]
         table = PrettyTable(row_headers)
         for rh in row_headers:
             table.align[rh] = "l"
@@ -139,7 +164,7 @@ def main():
                 [("-> " if sym in best_candidate[side]["symbols_to_include"] else "") + sym]
                 + [round_dynamic(x, 4) if np.isfinite(x) else x for x in xs]
                 + [round(best_candidate[side]["n_days"][sym], 2)]
-                + [best_candidate[side]["individual_scores"][sym]]
+                + [round_dynamic(best_candidate[side]["individual_scores"][sym], 12)]
             )
         means = [
             np.mean(
@@ -160,7 +185,7 @@ def main():
             ["mean"]
             + [round_dynamic(m, 4) if np.isfinite(m) else m for m in means]
             + [round(np.mean(list(best_candidate[side]["n_days"].values())), 2)]
-            + [ind_scores_mean]
+            + [round_dynamic(ind_scores_mean, 12)]
         )
         with open(make_get_filepath(table_filepath), "a") as f:
             output = table.get_string(border=True, padding_width=1)

@@ -45,7 +45,8 @@ def make_table(result_):
             table.add_row([side.capitalize(), True])
             profit_color = (
                 Fore.RED
-                if result["result"][f"final_balance_{side}"] < result["result"]["starting_balance"]
+                if f"final_balance_{side}" in result["result"]
+                and result["result"][f"final_balance_{side}"] < result["result"]["starting_balance"]
                 else Fore.RESET
             )
             for title, key, precision, mul, suffix in [
@@ -64,13 +65,16 @@ def make_table(result_):
                 ("Average daily gain", f"adg_{side}", 3, 100, "%"),
                 ("Average daily gain weighted", f"adg_weighted_{side}", 3, 100, "%"),
                 ("Loss to profit ratio", f"loss_profit_ratio_{side}", 4, 1, ""),
+                ("Exposure ratios mean", f"exposure_ratios_mean_{side}", 5, 1, ""),
                 (f"Price action distance mean", f"pa_distance_mean_{side}", 6, 1, ""),
                 (f"Price action distance std", f"pa_distance_std_{side}", 6, 1, ""),
                 (f"Price action distance max", f"pa_distance_max_{side}", 6, 1, ""),
+                (f"Price action distance mean of 1% worst", f"pa_distance_1pct_worst_mean_{side}", 6, 1, ""),
                 ("Closest bankruptcy", f"closest_bkr_{side}", 4, 100, "%"),
                 ("Lowest equity/balance ratio", f"eqbal_ratio_min_{side}", 4, 1, ""),
                 ("Mean of 10 worst eq/bal ratios", f"eqbal_ratio_mean_of_10_worst_{side}", 4, 1, ""),
                 ("Equity/balance ratio std", f"equity_balance_ratio_std_{side}", 4, 1, ""),
+                ("Ratio of time spent at max exposure", f"time_at_max_exposure_{side}", 4, 1, ""),
             ]:
                 if key in result["result"]:
                     val = round_dynamic(result["result"][key] * mul, precision)
@@ -141,6 +145,9 @@ def dump_plots(
     result["plots_dirpath"] = make_get_filepath(
         os.path.join(result["plots_dirpath"], f"{ts_to_date(time.time())[:19].replace(':', '')}", "")
     )
+    # sdf = sdf.set_index(pd.to_datetime(pd.to_datetime(sdf.timestamp * 1000 * 1000)))
+    # longs = longs.set_index(pd.to_datetime(pd.to_datetime(sdf.timestamp * 1000 * 1000)))
+    # shorts = shorts.set_index(pd.to_datetime(pd.to_datetime(sdf.timestamp * 1000 * 1000)))
     longs.to_csv(result["plots_dirpath"] + "fills_long.csv")
     shorts.to_csv(result["plots_dirpath"] + "fills_short.csv")
     sdf.to_csv(result["plots_dirpath"] + "stats.csv")
@@ -193,14 +200,20 @@ def dump_plots(
                 ema_dist_upper = result[side][
                     "ema_dist_entry" if side == "short" else "ema_dist_close"
                 ]
-                ema_bands = pd.DataFrame(
-                    {
-                        "ema_band_lower": emas.min(axis=1) * (1 - ema_dist_lower),
-                        "ema_band_upper": emas.max(axis=1) * (1 + ema_dist_upper),
-                    },
-                    index=df.index,
-                )
-                df = df.join(ema_bands)
+                if abs(ema_dist_lower) < 0.1:
+                    df = df.join(
+                        pd.DataFrame(
+                            {"ema_band_lower": emas.min(axis=1) * (1 - ema_dist_lower)},
+                            index=df.index,
+                        )
+                    )
+                if abs(ema_dist_upper) < 0.1:
+                    df = df.join(
+                        pd.DataFrame(
+                            {"ema_band_upper": emas.max(axis=1) * (1 + ema_dist_upper)},
+                            index=df.index,
+                        )
+                    )
             for z in range(n_parts):
                 start_ = z / n_parts
                 end_ = (z + 1) / n_parts
@@ -215,7 +228,10 @@ def dump_plots(
                 else:
                     print(f"no {side} fills...")
             if result["passivbot_mode"] == "clock":
-                df = df.drop(["ema_band_lower", "ema_band_upper"], axis=1)
+                if "ema_band_lower" in df.columns:
+                    df = df.drop(["ema_band_lower"], axis=1)
+                if "ema_band_upper" in df.columns:
+                    df = df.drop(["ema_band_upper"], axis=1)
 
     print("plotting wallet exposures...")
     plt.clf()
