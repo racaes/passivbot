@@ -4,9 +4,11 @@ os.environ["NOJIT"] = "true"
 
 import ccxt.async_support as ccxt
 
+from procedures import load_ccxt_version
+ccxt_version_req = load_ccxt_version()
 assert (
-    ccxt.__version__ == "4.1.13"
-), f"Currently ccxt {ccxt.__version__} is installed. Please pip reinstall requirements.txt or install ccxt v4.0.57 manually"
+    ccxt.__version__ == ccxt_version_req
+), f"Currently ccxt {ccxt.__version__} is installed. Please pip reinstall requirements.txt or install ccxt v{ccxt_version_req} manually"
 import json
 import hjson
 import pprint
@@ -124,6 +126,14 @@ def generate_yaml(
     active_shorts = [sym for sym in ideal_shorts if sym in current_positions_short]
     active_shorts += [sym for sym in ideal_shorts if sym not in active_shorts][:free_slots_short]
     shorts_on_gs = [sym for sym in current_positions_short if sym not in active_shorts]
+
+    if config["graceful_stop"]:
+        longs_on_gs = current_positions_long
+        lw = round(twe_long / len(longs_on_gs), 4) if len(longs_on_gs) > 0 else 0.1
+        active_longs = []
+        shorts_on_gs = current_positions_short
+        sw = round(twe_short / len(shorts_on_gs), 4) if len(shorts_on_gs) > 0 else 0.1
+        active_shorts = []
 
     print("ideal_longs", sorted(ideal_longs))
     print("ideal_shorts", sorted(ideal_shorts))
@@ -254,6 +264,9 @@ async def get_current_symbols(cc):
     elif cc.id == "binanceusdm":
         cc.options["warnOnFetchOpenOrdersWithoutSymbol"] = False
         oos = await cc.fetch_open_orders()
+    elif cc.id == "bingx":
+        oos = await cc.swap_v2_private_get_trade_openorders()
+        oos = [{**elm, **{"symbol": elm["symbol"].replace("-", "")}} for elm in oos["data"]["orders"]]
     else:
         oos = await cc.fetch_open_orders()
     current_open_orders_long, current_open_orders_short = [], []
@@ -276,36 +289,60 @@ async def get_current_symbols(cc):
     )
 
 
-async def get_min_costs(cc):
+async def get_min_costs_and_contract_multipliers(cc):
     exchange = cc.id
     info = await cc.fetch_markets()
-    tickers = await cc.fetch_tickers()
+
+    # tickers format is {"COIN/USDT:USDT": {"last": float, ...}, ...}
+    if exchange == "kucoinfutures":
+        tickers = {elm["symbol"]: {"last": float(elm["info"]["lastTradePrice"])} for elm in info}
+    elif exchange == "okx":
+        tickers = await cc.fetch_tickers_by_type(type="swap")
+    elif exchange == "bitget":
+        tickers = await cc.public_mix_get_market_tickers(params={"productType": "UMCBL"})
+        bitget_id_map = {elm["id"]: elm["symbol"] for elm in info}
+        tickers = {
+            bitget_id_map[elm["symbol"]]: {"last": float(elm["last"])}
+            for elm in tickers["data"]
+            if elm["symbol"] in bitget_id_map
+        }
+    elif exchange == "bingx":
+        tickers = await cc.swap_v2_public_get_quote_price()
+        bingx_id_map = {elm["id"]: elm["symbol"] for elm in info}
+        tickers = {
+            bingx_id_map[elm["symbol"]]: {"last": float(elm["price"])}
+            for elm in tickers["data"]
+            if elm["symbol"] in bingx_id_map
+        }
+    else:
+        tickers = await cc.fetch_tickers()
     min_costs = {}
     c_mults = {}
     for x in info:
         symbol = x["symbol"]
         if symbol.endswith("USDT"):
             if x["type"] != "spot":
-                if exchange in ["okx", "bitget", "kucoinfutures"]:
-                    ticker_symbol = symbol.replace(":USDT", "")
-                else:
-                    ticker_symbol = symbol
-                if ticker_symbol in tickers:
+                if symbol in tickers:
                     if exchange == "bitget":
                         min_cost = 5.0
                         c_mult = 1.0
                         min_qty = float(x["info"]["minTradeNum"])
-                        last_price = tickers[ticker_symbol]["last"]
+                        last_price = tickers[symbol]["last"]
                     elif exchange == "kucoinfutures":
                         min_qty = 1.0
                         min_cost = 0.0
                         c_mult = float(x["info"]["multiplier"])
-                        last_price = float(tickers[ticker_symbol]["info"]["last"])
+                        last_price = float(tickers[symbol]["last"])
+                    elif exchange == "bingx":
+                        min_cost = 2.0
+                        min_qty = x["contractSize"]
+                        c_mult = 1.0
+                        last_price = tickers[symbol]["last"]
                     else:
                         min_cost = 0.0 if x["limits"]["cost"]["min"] is None else x["limits"]["cost"]["min"]
                         c_mult = 1.0 if x["contractSize"] is None else x["contractSize"]
                         min_qty = 0.0 if x["limits"]["amount"]["min"] is None else x["limits"]["amount"]["min"]
-                        last_price = tickers[ticker_symbol]["last"]
+                        last_price = tickers[symbol]["last"]
                     min_costs[symbol] = max(min_cost, min_qty * c_mult * last_price)
                     c_mults[symbol] = c_mult
     return min_costs, c_mults
@@ -314,7 +351,7 @@ async def get_min_costs(cc):
 async def dump_yaml(cc, config):
     max_min_cost = config["max_min_cost"]
     print("getting min costs...")
-    min_costs, c_mults = await get_min_costs(cc)
+    min_costs, c_mults = await get_min_costs_and_contract_multipliers(cc)
     symbols_map = {sym: sym.replace(":USDT", "").replace("/", "") for sym in min_costs}
     symbols_map_inv = {v: k for k, v in symbols_map.items()}
 
@@ -354,7 +391,9 @@ async def dump_yaml(cc, config):
             except:
                 pass
     approved = sorted(set(approved) - set(config["symbols_to_ignore"]))
-    if config["approved_symbols_long"] and config["approved_symbols_short"]:
+    if (config["approved_symbols_long"] or config["n_longs"] == 0) and (
+        config["approved_symbols_short"] or config["n_shorts"] == 0
+    ):
         approved = set(approved) & (set(config["approved_symbols_long"]) | set(config["approved_symbols_short"]))
 
     print("getting current bots...")
@@ -409,15 +448,25 @@ async def main():
         "bybit": "bybit",
         "binance": "binanceusdm",
         "bitget": "bitget",
+        "bingx": "bingx",
     }
     parser = argparse.ArgumentParser(prog="forager", description="start forager")
     parser.add_argument("forager_config_path", type=str, help="path to forager config")
     parser.add_argument(
         "-n", "--noloop", "--no-loop", "--no_loop", dest="no_loop", help="break after first iter", action="store_true"
     )
+    parser.add_argument(
+        "-gs",
+        "--graceful_stop",
+        "--graceful-stop",
+        dest="graceful_stop",
+        help="set all bots to graceful stop; WE_limit = TWE / n_bots",
+        action="store_true",
+    )
     args = parser.parse_args()
     config = hjson.load(open(args.forager_config_path))
     config["yaml_filepath"] = f"{config['user']}.yaml"
+    config["graceful_stop"] = args.graceful_stop
     user = config["user"]
     for key, value in [
         ("volume_clip_threshold", 0.5),
