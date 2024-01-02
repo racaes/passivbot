@@ -41,32 +41,29 @@
   // if approved_symbols_short is empty, all symbols are approved for shorts
   approved_symbols_short: []
 
-  // if symbol is missing from live_configs_map, default to this config
-  default_config_path: configs/live/hand_tune_recursive_01.json
-
   // Specify directory containing live configs.
   // They are sorted alphabetically, then the first config whose filename includes symbol is selected.
   // Set to "" to disable
   live_configs_dir_long: "configs/live/multisymbol/recursive_grid/"
   live_configs_dir_short: "configs/live/multisymbol/recursive_grid/"
 
-  // // overrides live_configs_dir
-  // live_configs_map: {
+  // overrides live_configs_dir
+  live_configs_map: {
   //   BCHUSDT: configs/live/recursive_grid_mode.example.json
-  // }
+  }
 
-  // // overrides long configs from live_configs_map
-  // live_configs_map_long: {
+  // overrides long configs from live_configs_map
+  live_configs_map_long: {
   //   BCHUSDT: configs/live/clock_mode.example.json
-  // }
+  }
 
-  // // overrides short configs from live_configs_map
-  // live_configs_map_short: {
+  // overrides short configs from live_configs_map
+  live_configs_map_short: {
   //   EOSUSDT: configs/live/single_symbol_optimizations/clock/EOSUSDT.json
-  // }
+  }
 
   // if symbol is missing from live_configs_map, default to this config
-  default_config_path: configs/live/clock_mode.example.json
+  default_config_path: configs/live/hand_tune_recursive_01.json
 
   // if symbol is approved:
   // if symbol is present in live_configs_map_{long/short}, use that config for {long/short}
