@@ -481,13 +481,6 @@ async def dump_yaml(cc, config):
     print("current_open_orders long", sorted(current_open_orders_long))
     print("current_open_orders short", sorted(current_open_orders_short))
     print("getting ohlcvs...")
-    # ignore_symbols = []
-    # for s in [[symbols_map_inv[sym]] for sym in approved]:
-    #     try:
-    #         await get_ohlcvs(cc, s, config)
-    #     except:
-    #         ignore_symbols.extend(s)
-
     ohs = await get_ohlcvs(cc, [symbols_map_inv[sym] for sym in approved], config)
     max_len_ohlcv = max([len(ohs[s]) for s in ohs])
     print("max_len_ohlcv", max_len_ohlcv)
