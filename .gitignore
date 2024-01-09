@@ -355,3 +355,5 @@ configs/live/multigrid.json
 reports/*
 
 *.csv
+
+tmp/
