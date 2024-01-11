@@ -28,8 +28,8 @@
     auto_gs: true
 
     // total wallet exposure limits long and short. Exposure limit for each bot will be TWE_pos_side / len(symbols_pos_side)
-    TWE_long: 1.25
-    TWE_short: 0.75
+    TWE_long: 2.1
+    TWE_short: 1.4
 
     // Flags:
     // -lm str: long mode. Choices: [n (normal), m (manual), gs (graceful_stop), p (panic), t (take_profit_only)].
@@ -65,7 +65,7 @@
     // Specify directory containing live configs.
     // They are sorted alphabetically, then the first config whose filename includes symbol is selected.
     // Set to "" to disable
-    live_configs_dir: "configs/live/multisymbol/no_AU/"
+    live_configs_dir: "configs/live/multisymbol/recursive_grid/"
 
     // if symbol is missing from live_configs_map, default to this config
     default_config_path: configs/live/hand_tune_recursive_01.json
