@@ -40,26 +40,41 @@
   // -lc str: live config path. Specify live config path to override config from live_configs_dir and default_config_path.
 
   symbols: {
-	CELOUSDT: ''
-//	TRBUSDT: ''
-	RNDRUSDT: ''
-	CRVUSDT: ''
-//	AGLDUSDT: ''
-	STMXUSDT: ''
-	BCHUSDT: ''
-	TRXUSDT: ''
-//	BTCUSDT: ''
-	MKRUSDT: ''
+	LDOUSDT: ''
 //	XLMUSDT: ''
-	LINAUSDT: ''
+	STMXUSDT: ''
+	CYBERUSDT: ''
+	FOOTBALLUSDT: ''
+	OPUSDT: ''
 //	INJUSDT: ''
+	CRVUSDT: ''
+	SPELLUSDT: ''
+	RNDRUSDT: ''
+	SEIUSDT: ''
+	WLDUSDT: ''
+	BCHUSDT: ''
+	COCOSUSDT: ''
+	UNFIUSDT: ''
+	LITUSDT: ''
+	MKRUSDT: ''
+	CELOUSDT: ''
+	DYDXUSDT: ''
+	HOOKUSDT: ''
+	TRXUSDT: ''
+	XRPUSDT: ''
+	FLOWUSDT: ''
+	LUNA2USDT: ''
+//	TRBUSDT: ''
+	ANTUSDT: ''
 //	TOMOUSDT: ''
+	LINAUSDT: ''
+	STGUSDT: ''
   }
 
   // Specify directory containing live configs.
   // They are sorted alphabetically, then the first config whose filename includes symbol is selected.
   // Set to "" to disable
-  live_configs_dir: "configs/live/multisymbol/recursive_grid/"
+  live_configs_dir: "configs/live/multisymbol/no_AU/"
 
   // if symbol is missing from live_configs_map, default to this config
   default_config_path: configs/live/hand_tune_recursive_01.json
