@@ -23,9 +23,9 @@
   short_enabled: true
 
   # format YYYY-MM-DD
-  start_date: 2021-05-01
+  start_date: 2020-05-01
   // if end_date is "now" will use current date as end_date.
-  end_date: now
+  end_date: 2024-01-12
 
   # specify starting balance in USDT
   starting_balance: 1000.0
@@ -40,35 +40,28 @@
   // -lc str: live config path. Specify live config path to override config from live_configs_dir and default_config_path.
 
   symbols: {
-	LDOUSDT: ''
-//	XLMUSDT: ''
-	STMXUSDT: ''
-	CYBERUSDT: ''
-	FOOTBALLUSDT: ''
-	OPUSDT: ''
-//	INJUSDT: ''
-	CRVUSDT: ''
-	SPELLUSDT: ''
-	RNDRUSDT: ''
-	SEIUSDT: ''
-	WLDUSDT: ''
-	BCHUSDT: ''
-	COCOSUSDT: ''
-	UNFIUSDT: ''
-	LITUSDT: ''
-	MKRUSDT: ''
-	CELOUSDT: ''
-	DYDXUSDT: ''
-	HOOKUSDT: ''
-	TRXUSDT: ''
-	XRPUSDT: ''
-	FLOWUSDT: ''
-	LUNA2USDT: ''
-//	TRBUSDT: ''
-	ANTUSDT: ''
-//	TOMOUSDT: ''
-	LINAUSDT: ''
-	STGUSDT: ''
+  //    USDCUSDT: ''
+        1000XECUSDT: ''
+        IDEXUSDT: ''
+        OPUSDT: ''
+        KNCUSDT: ''
+        EDUUSDT: ''
+        MKRUSDT: ''
+        XVGUSDT: ''
+        UNFIUSDT: ''
+        SUIUSDT: ''
+        ANTUSDT: ''
+        HFTUSDT: ''
+        TOMOUSDT: ''
+        IDUSDT: ''
+        BCHUSDT: ''
+        FOOTBALLUSDT: ''
+        TRXUSDT: ''
+  //    LUNA2USDT: ''
+  //    BNXUSDT: ''
+  //    SFPUSDT: ''
+  //    CFXUSDT: ''
+  //    XLMUSDT: ''
   }
 
   // Specify directory containing live configs.
