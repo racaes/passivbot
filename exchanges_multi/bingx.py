@@ -14,7 +14,7 @@ from pure_funcs import (
     determine_pos_side_ccxt,
     shorten_custom_id,
 )
-from njit_funcs import calc_diff
+from njit_funcs import calc_diff, round_
 from procedures import print_async_exception, utc_ms
 
 
@@ -98,7 +98,19 @@ class BingXBot(Passivbot):
 
     async def watch_tickers(self, symbols=None):
         # ccxt hasn't implemented the needed WS endpoints... Relying instead on REST update of tickers.
-        return
+        symbols = list(self.symbols if symbols is None else symbols)
+        while True:
+            try:
+                if self.stop_websocket:
+                    break
+                res = await self.fetch_tickers()
+                res = {s: {k: res[s][k] for k in ["symbol", "bid", "ask", "last"]} for s in symbols}
+                for k in res:
+                    self.handle_ticker_update(res[k])
+                await asyncio.sleep(10)
+            except Exception as e:
+                print(f"exception watch_tickers {symbols}", e)
+                traceback.print_exc()
 
     async def fetch_open_orders(self, symbol: str = None):
         fetched = None
@@ -299,6 +311,17 @@ class BingXBot(Passivbot):
                     executed[key] = order[key]
             return executed
         except Exception as e:
+            if '"code":101400' in str(e):
+                sym = order["symbol"]
+                new_min_qty = round_(
+                    max(self.min_qtys[sym], order["qty"]) + self.qty_steps[sym], self.qty_steps[sym]
+                )
+                logging.info(
+                    f"successfully caught order size error, code 101400. Adjusting min_qty from {self.min_qtys[sym]} to {new_min_qty}..."
+                )
+                self.min_qtys[sym] = new_min_qty
+                logging.error(f"{order} {e}")
+                return {}
             logging.error(f"error executing order {order} {e}")
             print_async_exception(executed)
             traceback.print_exc()
@@ -308,4 +331,55 @@ class BingXBot(Passivbot):
         return await self.execute_multiple(orders, "execute_order", self.max_n_creations_per_batch)
 
     async def update_exchange_config(self):
-        pass
+        coros_to_call_lev, coros_to_call_margin_mode = {}, {}
+        for symbol in self.symbols:
+            try:
+                coros_to_call_margin_mode[symbol] = asyncio.create_task(
+                    self.cca.set_margin_mode(
+                        "cross",
+                        symbol=symbol,
+                    )
+                )
+            except Exception as e:
+                logging.error(f"{symbol}: error setting cross mode {e}")
+            try:
+                coros_to_call_lev[symbol] = asyncio.create_task(
+                    self.cca.set_leverage(
+                        int(self.live_configs[symbol]["leverage"]),
+                        symbol=symbol,
+                        params={"side": "LONG"},
+                    )
+                )
+            except Exception as e:
+                logging.error(f"{symbol}: a error setting leverage long {e}")
+            try:
+                coros_to_call_lev[symbol] = asyncio.create_task(
+                    self.cca.set_leverage(
+                        int(self.live_configs[symbol]["leverage"]),
+                        symbol=symbol,
+                        params={"side": "SHORT"},
+                    )
+                )
+            except Exception as e:
+                logging.error(f"{symbol}: a error setting leverage short {e}")
+        for symbol in self.symbols:
+            res = None
+            to_print = ""
+            try:
+                res = await coros_to_call_lev[symbol]
+                to_print += f" set leverage {res} "
+            except Exception as e:
+                if '"retCode":110043' in e.args[0]:
+                    to_print += f" leverage: {e}"
+                else:
+                    logging.error(f"{symbol} error setting leverage {e}")
+            try:
+                res = await coros_to_call_margin_mode[symbol]
+                to_print += f"set cross mode {res}"
+            except Exception as e:
+                if '"retCode":110026' in e.args[0]:
+                    to_print += f" set cross mode: {res} {e}"
+                else:
+                    logging.error(f"{symbol} error setting cross mode {res} {e}")
+            if to_print:
+                logging.info(f"{symbol}: {to_print}")
