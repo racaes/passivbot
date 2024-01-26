@@ -128,6 +128,10 @@ def prep_config_multi(parser):
         help="specify short_enabled (y/n or t/f), overriding value from hjson config",
     )
     args = parser.parse_args()
+    return args2config(args)
+
+
+def args2config(args):
     config = OrderedDict()
     for key, value in vars(args).items():
         if "config_path" in key:
@@ -146,6 +150,8 @@ def prep_config_multi(parser):
                 if key in config and config[key] != getattr(args, key):
                     logging.info(f"changing {key}: {config[key]} -> {getattr(args, key)}")
                     config[key] = getattr(args, key)
+    if isinstance(config["symbols"], list):
+        config["symbols"] = {s: "" for s in config["symbols"]}
     config["symbols"] = OrderedDict(sorted(config["symbols"].items()))
     config["exchange"] = load_user_info(config["user"])["exchange"]
     return config
@@ -171,7 +177,7 @@ async def prep_hlcs_mss_config(config):
         "market_specific_settings.json",
     )
     try:
-        mss = fetch_market_specific_settings_multi()
+        mss = fetch_market_specific_settings_multi(exchange=config["exchange"])
         json.dump(mss, open(make_get_filepath(mss_path), "w"))
     except Exception as e:
         print("failed to fetch market specific settings", e)
@@ -187,7 +193,11 @@ async def prep_hlcs_mss_config(config):
         first_ts = 0
     except:
         first_ts, hlcs = await prepare_multsymbol_data(
-            config["symbols"], config["start_date"], config["end_date"]
+            config["symbols"],
+            config["start_date"],
+            config["end_date"],
+            config["base_dir"],
+            config["exchange"],
         )
         np.save(config["cache_fpath"], hlcs)
     return hlcs, mss, config
