@@ -13,7 +13,7 @@
 
   # format YYYY-MM-DD
   start_date: 2024-01-13
-  end_date: now
+  end_date: 2024-01-22
 
   # non default historical data path
   # defaults to local dir if unspecified
