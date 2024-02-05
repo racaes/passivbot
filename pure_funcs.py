@@ -260,6 +260,13 @@ def date_to_ts2(datetime_string):
     )
 
 
+def date2ts_utc(datetime_string):
+    return (
+        dateutil.parser.parse(datetime_string).replace(tzinfo=datetime.timezone.utc).timestamp()
+        * 1000
+    )
+
+
 def date_to_ts2_old(datetime_string):
     try:
         date_formats = [
@@ -1699,6 +1706,7 @@ def shorten_custom_id(id_: str) -> str:
         ("primary", "prm"),
         ("unstuck", "ustk"),
         ("partial", "prtl"),
+        ("panic", "pnc"),
     ]:
         id0 = id0.replace(k_, r_)
     return id0
@@ -2066,3 +2074,22 @@ def str2bool(v):
         return False
     else:
         raise Exception("Boolean value expected.")
+
+
+def determine_side_from_order_tuple(order_tuple):
+    if "long" in order_tuple[2]:
+        if "entry" in order_tuple[2]:
+            return "buy"
+        elif "close" in order_tuple[2]:
+            return "sell"
+        else:
+            raise Exception(f"malformed order tuple {order_tuple}")
+    elif "short" in order_tuple[2]:
+        if "entry" in order_tuple[2]:
+            return "sell"
+        elif "close" in order_tuple[2]:
+            return "buy"
+        else:
+            raise Exception(f"malformed order tuple {order_tuple}")
+    else:
+        raise Exception(f"malformed order tuple {order_tuple}")

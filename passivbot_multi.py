@@ -12,6 +12,7 @@ import json
 import hjson
 import pprint
 import numpy as np
+from uuid import uuid4
 
 from procedures import load_broker_code, load_user_info, utc_ms, make_get_filepath, load_live_config
 from njit_funcs_recursive_grid import calc_recursive_entries_long, calc_recursive_entries_short
@@ -32,7 +33,13 @@ from njit_funcs import (
     calc_pnl_short,
 )
 from njit_multisymbol import calc_AU_allowance
-from pure_funcs import numpyize, filter_orders, multi_replace
+from pure_funcs import (
+    numpyize,
+    filter_orders,
+    multi_replace,
+    shorten_custom_id,
+    determine_side_from_order_tuple,
+)
 
 
 class Passivbot:
@@ -45,6 +52,7 @@ class Passivbot:
         self.user_info = load_user_info(config["user"])
         self.exchange = self.user_info["exchange"]
         self.broker_code = load_broker_code(self.user_info["exchange"])
+        self.custom_id_max_length = 36
         self.sym_padding = 17
         self.stop_websocket = False
         self.balance = 1e-12
@@ -834,7 +842,24 @@ class Passivbot:
                 do_short = (
                     no_pos and self.live_configs[symbol]["short"]["enabled"]
                 ) or self.positions[symbol]["short"]["size"] != 0.0
-            if do_long:
+            if self.live_configs[symbol]["long"]["mode"] == "panic":
+                if self.positions[symbol]["long"]["size"] != 0.0:
+                    # if in panic mode, only one close order at current market price
+                    ideal_orders[symbol].append(
+                        (
+                            -abs(self.positions[symbol]["long"]["size"]),
+                            self.tickers[symbol]["ask"],
+                            "panic_close_long",
+                        )
+                    )
+                # otherwise, no orders
+            elif (
+                self.live_configs[symbol]["long"]["mode"] == "graceful_stop"
+                and self.positions[symbol]["long"]["size"] == 0.0
+            ):
+                # if graceful stop and no pos, don't open new pos
+                pass
+            elif do_long:
                 entries_long = calc_recursive_entries_long(
                     self.balance,
                     self.positions[symbol]["long"]["size"],
@@ -902,7 +927,23 @@ class Passivbot:
                     self.live_configs[symbol]["long"]["auto_unstuck_qty_pct"],
                 )
                 ideal_orders[symbol] += entries_long + closes_long
-            if do_short:
+            if self.live_configs[symbol]["short"]["mode"] == "panic":
+                if self.positions[symbol]["short"]["size"] != 0.0:
+                    # if in panic mode, only one close order at current market price
+                    ideal_orders[symbol].append(
+                        (
+                            abs(self.positions[symbol]["short"]["size"]),
+                            self.tickers[symbol]["bid"],
+                            "panic_close_short",
+                        )
+                    )
+            elif (
+                self.live_configs[symbol]["short"]["mode"] == "graceful_stop"
+                and self.positions[symbol]["short"]["size"] == 0.0
+            ):
+                # if graceful stop and no pos, don't open new pos
+                pass
+            elif do_short:
                 entries_short = calc_recursive_entries_short(
                     self.balance,
                     self.positions[symbol]["short"]["size"],
@@ -984,7 +1025,7 @@ class Passivbot:
             symbol: [
                 {
                     "symbol": symbol,
-                    "side": "buy" if x[0] > 0.0 else "sell",
+                    "side": determine_side_from_order_tuple(x),
                     "position_side": "long" if "long" in x[2] else "short",
                     "qty": abs(x[0]),
                     "price": x[1],
@@ -1017,31 +1058,6 @@ class Passivbot:
         keys = ("symbol", "side", "position_side", "qty", "price")
         to_cancel, to_create = [], []
         for symbol in actual_orders:
-            for pside in ["long", "short"]:
-                # remove orders according to operation mode [n, m, gs, p, t]
-                if self.live_configs[symbol][pside]["mode"] in ["graceful_stop", "panic"]:
-                    if self.positions[symbol][pside]["size"] == 0.0:
-                        # if no pos, don't open new pos
-                        ideal_orders[symbol] = [
-                            x for x in ideal_orders[symbol] if x["position_side"] != pside
-                        ]
-                    elif self.live_configs[symbol][pside]["mode"] == "panic":
-                        # if in panic mode, only one close order at current market price
-                        ideal_orders[symbol] = [
-                            x for x in ideal_orders[symbol] if x["position_side"] != pside
-                        ]
-                        ideal_orders[symbol].append(
-                            {
-                                "symbol": symbol,
-                                "side": "sell" if pside == "long" else "buy",
-                                "position_side": pside,
-                                "qty": abs(self.positions[symbol][pside]["size"])
-                                * (-1.0 if pside == "long" else 1.0),
-                                "price": self.tickers[symbol][("ask" if pside == "long" else "bid")],
-                                "reduce_only": True,
-                                "custom_id": f"panic_close_{pside}",
-                            }
-                        )
             to_cancel_, to_create_ = filter_orders(actual_orders[symbol], ideal_orders[symbol], keys)
             for pside in ["long", "short"]:
                 if self.live_configs[symbol][pside]["mode"] == "manual":
@@ -1123,6 +1139,9 @@ class Passivbot:
                     print("debug duplicate", elm)
                 seen.add(key)
 
+            # format custom_id
+            to_create = self.format_custom_ids(to_create)
+
             res = await self.execute_cancellations(to_cancel)
             for elm in res:
                 self.remove_cancelled_order(elm, source="POST")
@@ -1136,6 +1155,15 @@ class Passivbot:
             traceback.print_exc()
         finally:
             self.previous_execution_ts = utc_ms()
+
+    def format_custom_ids(self, orders: [dict]) -> [dict]:
+        new_orders = []
+        for order in orders:
+            order["custom_id"] = (
+                shorten_custom_id(order["custom_id"] if "custom_id" in order else "") + uuid4().hex
+            )[: self.custom_id_max_length]
+            new_orders.append(order)
+        return new_orders
 
     async def execution_loop(self):
         while True:
