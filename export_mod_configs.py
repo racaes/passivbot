@@ -18,7 +18,7 @@ au_mods_dict = {
         "auto_unstuck_delay_minutes": 120,
         "auto_unstuck_ema_dist": -0.1,
         "auto_unstuck_qty_pct": 0.5,
-        "auto_unstuck_wallet_exposure_threshold": 0.8
+        "auto_unstuck_wallet_exposure_threshold": 1.0
     },
     "short": {
         "auto_unstuck_delay_minutes": 120,
