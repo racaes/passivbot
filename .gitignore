@@ -358,4 +358,5 @@ reports/*
 
 tmp/
 caches/
-
+bitget_01.yaml
+bitget_01.yaml.old
