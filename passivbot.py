@@ -1,7 +1,7 @@
 import os
 
 if "NOJIT" not in os.environ:
-    os.environ["NOJIT"] = "true"
+    os.environ["NOJIT"] = "false"
 
 import traceback
 import argparse
