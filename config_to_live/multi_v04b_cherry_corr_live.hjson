@@ -1,0 +1,77 @@
+{
+    /*
+    passivbot with multisym auto unstuck: will use profits from other positions to offset losses realized on stuck positions.
+    */
+
+    // exchange from api-keys.json is used
+    user: bitget_02
+
+    // multisym auto unstuck: will use profits from other positions to offset losses realized on stuck positions
+    //multisym_auto_unstuck_enabled: true
+    // how much below past peak balance to allow losses (default 1% == 0.01). Set to 0.0 to disable multisym auto unstuck.
+    loss_allowance_pct: 0.01
+
+    // how far into the past to fetch pnl history
+    pnls_max_lookback_days: 30  // originally it was 60
+    
+
+    // if wallet_exposure / wallet_exposure_limit > stuck_threshold: consider position as stuck
+    stuck_threshold: 0.15  // originally it was 0.95
+
+    // percentage of balance * wallet_exposure_limit to close for each unstucking order (default 1% == 0.01)
+    unstuck_close_pct: 0.01
+
+
+    // delay between executions to exchange. Set to 60 to simulate 1m ohlcv backtest.
+    execution_delay_seconds: 2
+
+    // set all non-specified symbols on graceful stop
+    auto_gs: true
+
+    // total wallet exposure limits long and short. Exposure limit for each bot will be TWE_pos_side / len(symbols_pos_side)
+    TWE_long: 5.25
+    TWE_short: 3.5
+
+    // if true, mode defaults to 'normal'. If false, mode defaults to 'graceful_stop' if auto_gs=true, else 'manual'.
+    long_enabled: true
+    short_enabled: true
+
+    // Flags:
+    // -lm str: long mode. Choices: [n (normal), m (manual), gs (graceful_stop), p (panic), t (take_profit_only)].
+    // -sm str: short mode. Choices: [n (normal), m (manual), gs (graceful_stop), p (panic), t (take_profit_only)].
+        // normal mode: passivbot manages the position as normal
+        // manual mode: passivbot ignores the position
+        // graceful stop: if there is a position, passivbot will manage it, otherwise passivbot will not make new positions
+        // take profit only: passivbot will only manage closing orders
+    // -pp float: price precision multiplier. Override price step with market_price * price_precision_multiplier rounded to one significant digit. Suggested val 0.0001. Set to 0.0 to disable.
+    // -ps float: price step custom. Override price step with custom price step. Takes precedence over -pp. Set to 0.0 to disable.
+    // -lw float: wallet exposure limit long. Overrides value from live config. If absent, WE long is TWE_long / len(active_symbols_long)
+    // -sw: float: wallet exposure limit short. Overrides value from live config.
+    // -lev int: leverage set on exchange, if applicable. Default is 10.
+    // -lc str: live config path. Specify live config path to override config from live_configs_dir and default_config_path.
+
+    symbols: {
+        CELOUSDT: "-lm n -sm n -lev 20"
+        //	TRBUSDT: "-lm n -sm n -lev 20"
+        RNDRUSDT: "-lm n -sm n -lev 20"
+        CRVUSDT: "-lm n -sm n -lev 20"
+        //	AGLDUSDT: "-lm n -sm n -lev 20"
+        STMXUSDT: "-lm n -sm n -lev 20"
+        BCHUSDT: "-lm n -sm n -lev 20"
+        TRXUSDT: "-lm n -sm n -lev 20"
+        //	BTCUSDT: "-lm n -sm n -lev 20"
+        MKRUSDT: "-lm n -sm n -lev 20"
+        //	XLMUSDT: "-lm n -sm n -lev 20"
+        LINAUSDT: "-lm n -sm n -lev 20"
+        //	INJUSDT: "-lm n -sm n -lev 20"
+        //	TOMOUSDT: "-lm n -sm n -lev 20"
+    }
+
+    // Specify directory containing live configs.
+    // They are sorted alphabetically, then the first config whose filename includes symbol is selected.
+    // Set to "" to disable
+    live_configs_dir: "configs/live/multisymbol/no_AU/"
+
+    // if symbol is missing from live_configs_map, default to this config
+    default_config_path: configs/live/hand_tune_recursive_01.json
+}
