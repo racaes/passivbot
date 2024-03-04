@@ -6,15 +6,18 @@ import time
 
 import numpy as np
 
-config_params = "/home/tdb/config_to_live/GALUSDT__adg_per_exposure_short__absolute__v0b.json"
-config_backtest = "/home/tdb/git/passivbot/configs/backtest/myconfig_v01.hjson"
-symbols = ["GALUSDT", "SOLUSDT", "TRXUSDT",
-           "TOMOUSDT", "OCEANUSDT", "IMXUSDT",
-           "ETHUSDT", "BTCUSDT", "ADAUSDT", "XRPUSDT", "XMRUSDT"]
+# config_params = "/home/tdb/config_to_live/GALUSDT__adg_per_exposure_short__absolute__v0b.json"
+config_params = "/home/tdb/git/passivbot/configs/live/generic_recursive_grid_mode.json"
+config_backtest = "/home/tdb/git/passivbot/configs/backtest/myconfig_v04.hjson"
+symbols = ["FLOKIUSDT",]
+           # "GALUSDT", "SOLUSDT", "TRXUSDT",
+           # "TOMOUSDT", "OCEANUSDT", "IMXUSDT",
+           # "ETHUSDT", "BTCUSDT", "ADAUSDT", "XRPUSDT", "XMRUSDT"]
 symbol_str = ",".join(symbols)
 long_exposure = np.arange(11) * 0.10
 long_exposure = long_exposure[1:]
-if os.path.isfile('results_backtest_custom.pkl'):
+REDO = True
+if os.path.isfile('results_backtest_custom.pkl') and not REDO:
     with open('results_backtest_custom.pkl', 'rb') as fp:
         results_dict = pickle.load(fp)
 else:
