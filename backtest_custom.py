@@ -9,7 +9,7 @@ import numpy as np
 # config_params = "/home/tdb/config_to_live/GALUSDT__adg_per_exposure_short__absolute__v0b.json"
 config_params = "/home/tdb/git/passivbot/configs/live/generic_recursive_grid_mode.json"
 config_backtest = "/home/tdb/git/passivbot/configs/backtest/myconfig_v04.hjson"
-symbols = ["FLOKIUSDT",]
+symbols = ["1000FLOKIUSDT"]
            # "GALUSDT", "SOLUSDT", "TRXUSDT",
            # "TOMOUSDT", "OCEANUSDT", "IMXUSDT",
            # "ETHUSDT", "BTCUSDT", "ADAUSDT", "XRPUSDT", "XMRUSDT"]
