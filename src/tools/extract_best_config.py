@@ -31,7 +31,7 @@ def data_generator(all_results_filename, verbose=False):
 
     Args:
         all_results_filename (str): Path to the all_results.txt file.
-        verbose (bool): If True, disable all printing and progress tracking.
+        verbose (bool): If True, enable all printing and progress tracking.
 
     Yields:
         dict: The full data dictionary at each step.
@@ -39,7 +39,7 @@ def data_generator(all_results_filename, verbose=False):
     prev_data = None
     # Get the total file size in bytes
     file_size = os.path.getsize(all_results_filename)
-    # Disable progress bar and printing if verbose is True
+    # Disable progress bar and printing if verbose is False
     with open(all_results_filename, "r") as f:
         with tqdm(
             total=file_size,
@@ -204,7 +204,6 @@ def process_single(file_location, verbose=False):
         del best_d["config"]
     fjson = config_pretty_str(best_d)
     print_(fjson)
-    coins = [s.replace("USDT", "") for s in best_d["backtest"]["symbols"]]
     print_(file_location)
     full_path = file_location.replace("_all_results.txt", "") + ".json"
     base_path = os.path.split(full_path)[0]

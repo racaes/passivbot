@@ -4,7 +4,7 @@
 
 :warning: **Used at one's own risk** :warning:
 
-v7.2.12
+v7.2.16
 
 
 ## Overview
@@ -146,12 +146,17 @@ For more detailed information about Passivbot, see documentation files here: [do
 There is a paid manager service to run Passivbot on the user's behalf:  
 www.passivbotmanager.com  
 
+**Passivbot GUI**
+A graphical user interface for Passivbot:  
+https://github.com/msei99/pbgui
+
 **Referrals:**  
 Signing up using these referrals is appreciated:  
 https://accounts.binance.com/register?ref=TII4B07C  
 https://partner.bybit.com/b/passivbot  
 https://partner.bitget.com/bg/Y8FU1W  
 https://www.okx.com/join/PASSIVBOT  (20% rebate)  
+https://app.hyperliquid.xyz/join/PASSIVBOT  
 
 **Note on Binance**  
 To support continued Passivbot development, please use a Binance account which  
