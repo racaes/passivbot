@@ -10,7 +10,8 @@ Here follows an overview of the parameters found in `config/template.json`.
 - `exchanges`: Exchanges from which to fetch 1m OHLCV data for backtesting and optimizing. Options: [binance, bybit, gateio, bitget]
 - `start_date`: Start date of backtest.
 - `starting_balance`: Starting balance in USD at the beginning of backtest.
-- `symbols`: Coins which were backtested for each exchange. Note: coins for backtesting are live.approved_coins minus live.ignored_coins.
+- `use_btc_collateral`: true/false. Set to true to backtest with BTC as collateral, simulating starting with 100% BTC and buying BTC with all USD profits, but not selling BTC when taking losses (instead go into USD debt).
+  - e.g. given BTC/USD price of $100,000, if BTC balance is 1.0 and backtester makes 10 USD profit, BTC balance becomes 1.0001 and USD balance is 0. If backtester loses 20 USD, BTC balance remains 1.0001 and USD balance becomes -20. If backtester then makes 15 USD profit, USD debt is paid off first: BTC balance remains 1.0001, USD balance becomes -5. If the backtester then makes 10 USD profit: BTC balance becomes 1.00015, USD balance is 0.
 
 ## Bot Settings
 
@@ -192,6 +193,7 @@ When optimizing, parameter values are within the lower and upper bounds.
 ### Other Optimization Parameters
 
 - `compress_results_file`: If true, will compress optimize output results file to save space.
+- `enable_overrides`: list of custom optimizer overrides you want to enable. Use optimizer_overrides.py for the overrides. Defaults to none. 
 - `crossover_probability`: The probability of performing crossover between two individuals in the genetic algorithm. It determines how often parents will exchange genetic information to create offspring.
 - `iters`: Number of backtests per optimize session.
 - `mutation_probability`: The probability of mutating an individual in the genetic algorithm. It determines how often random changes will be introduced to the population to maintain diversity.
