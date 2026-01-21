@@ -538,7 +538,7 @@ class BitgetBot(CCXTBot):
         return clip_by_timestamp(deduped, start_time, end_time)
 
     def _build_order_params(self, order: dict) -> dict:
-        return {
+        params = {
             "timeInForce": (
                 "PO" if require_live_value(self.config, "time_in_force") == "post_only" else "GTC"
             ),
@@ -546,7 +546,13 @@ class BitgetBot(CCXTBot):
             "reduceOnly": order["reduce_only"],
             "oneWayMode": False,
             "clientOid": order["custom_id"],
+            "posSide": order["position_side"],
         }
+        if order["reduce_only"]:
+            params["tradeSide"] = "close"
+        else:
+            params["tradeSide"] = "open"
+        return params
 
     async def update_exchange_config_by_symbols(self, symbols):
         coros_to_call_lev, coros_to_call_margin_mode = {}, {}
