@@ -746,7 +746,8 @@ class BitgetBot(Passivbot):
 
     def get_order_execution_params(self, order: dict) -> dict:
         # defined for each exchange
-        return {
+        # PATCH: Explicitly map params for Bitget V2 Hedge Mode
+        params = {
             "timeInForce": (
                 "PO" if require_live_value(self.config, "time_in_force") == "post_only" else "GTC"
             ),
@@ -754,7 +755,14 @@ class BitgetBot(Passivbot):
             "reduceOnly": order["reduce_only"],
             "oneWayMode": False,
             "clientOid": order["custom_id"],
+            # Explicit V2 additions
+            "posSide": order["position_side"],
         }
+        if order["reduce_only"]:
+            params["tradeSide"] = "close"
+        else:
+            params["tradeSide"] = "open"
+        return params
 
     async def update_exchange_config_by_symbols(self, symbols):
         coros_to_call_lev, coros_to_call_margin_mode = {}, {}
