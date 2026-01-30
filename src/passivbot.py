@@ -2031,7 +2031,7 @@ class Passivbot:
         # filter coins by min effective cost
         # filter coins by relative volume
         # filter coins by log range
-        if self.get_forced_PB_mode(pside):
+        if (fm := self.get_forced_PB_mode(pside)) and fm not in ("normal", "n"):
             return []
         candidates = self.approved_coins_minus_ignored_coins[pside]
         candidates = [s for s in candidates if self.is_old_enough(pside, s)]
@@ -4442,7 +4442,7 @@ class Passivbot:
                     continue
                 if mprice_diff > float(self.live_value("price_distance_threshold")):
                     if any_partial and "entry" in order[2]:
-                        logging.debug(
+                        logging.info(
                             "gated by price_distance_threshold (partial) | %s %s %s diff=%.5f",
                             symbol,
                             position_side,
@@ -4451,7 +4451,7 @@ class Passivbot:
                         )
                         continue
                     if any(token in order[2] for token in ("initial", "unstuck")):
-                        logging.debug(
+                        logging.info(
                             "gated by price_distance_threshold (initial/unstuck) | %s %s %s diff=%.5f",
                             symbol,
                             position_side,
@@ -4460,7 +4460,7 @@ class Passivbot:
                         )
                         continue
                     if not self.has_position(position_side, symbol):
-                        logging.debug(
+                        logging.info(
                             "gated by price_distance_threshold (no position) | %s %s %s diff=%.5f",
                             symbol,
                             position_side,

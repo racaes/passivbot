@@ -24,7 +24,7 @@ from config_transform import record_transform
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)-8s %(message)s",
-    level=logging.INFO,
+    level=logging.DEBUG,
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 
