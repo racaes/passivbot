@@ -697,7 +697,22 @@ class Passivbot:
         """Load exchange market metadata and refresh approval lists."""
         # called at bot startup and once an hour thereafter
         self.init_markets_last_update_ms = utc_ms()
-        await self.update_exchange_config()  # set hedge mode
+        # Retry on transient network errors at cold boot (TCP + TLS handshake
+        # on a fresh aiohttp session can time out before load_markets finishes).
+        for _attempt in range(1, 4):
+            try:
+                await self.update_exchange_config()  # set hedge mode
+                break
+            except (RequestTimeout, NetworkError) as e:
+                if _attempt == 3:
+                    raise
+                logging.warning(
+                    "[boot] update_exchange_config error (attempt %d/3): %s – retrying in %ds",
+                    _attempt,
+                    e,
+                    5 * _attempt,
+                )
+                await asyncio.sleep(5 * _attempt)
         # Reuse existing ccxt session when available (ensures shared options such as fetchMarkets types).
         cc_instance = getattr(self, "cca", None)
         self.markets_dict = await load_markets(self.exchange, 0, verbose=False, cc=cc_instance, quote=self.quote)
@@ -4994,7 +5009,10 @@ class Passivbot:
 
     async def maintain_hourly_cycle(self):
         """Periodically refresh market metadata while the bot is running."""
-        logging.info(f"Starting hourly_cycle...")
+        # Random jitter (0–120s) so multiple bots on the same VPS don't fire
+        # init_markets simultaneously and blow through IP-based rate limits.
+        jitter_s = random.uniform(0, 120)
+        logging.info("[hourly] starting maintenance cycle (jitter=%.1fs)", jitter_s)
         while not self.stop_signal_received:
             try:
                 now = utc_ms()
@@ -5005,8 +5023,9 @@ class Passivbot:
                 interval = getattr(self, "memory_snapshot_interval_ms", 3_600_000)
                 if last_mem_log_ts is None or now - last_mem_log_ts >= interval:
                     self._log_memory_snapshot(now_ms=now)
-                # update markets dict once every hour
-                if now - self.init_markets_last_update_ms > 1000 * 60 * 60:
+                # update markets dict once every hour, with per-instance jitter
+                hourly_interval_ms = 1000 * 60 * 60 + int(jitter_s * 1000)
+                if now - self.init_markets_last_update_ms > hourly_interval_ms:
                     await self.init_markets(verbose=False)
                 await asyncio.sleep(1)
             except Exception as e:
