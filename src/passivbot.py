@@ -6483,7 +6483,12 @@ class Passivbot:
         # filter coins by min effective cost
         # filter coins by relative volume
         # filter coins by log range
-        if self.get_forced_PB_mode(pside):
+        # metabot-compat: a *forced* mode of "normal"/"n" (set by the metabot FSM
+        # CAUTION state via forced_mode_{pside}) must NOT empty the candidate list —
+        # only genuinely restrictive modes (graceful_stop/panic/tp_only/manual) should.
+        # get_forced_PB_mode returns the expanded string "normal" for "n", which is
+        # truthy, so the bare check would halt all new entries in CAUTION. (ported from 4c052861)
+        if (fm := self.get_forced_PB_mode(pside)) and fm not in ("normal", "n"):
             return []
         candidates = self.approved_coins_minus_ignored_coins[pside]
         candidates = [s for s in candidates if self.is_old_enough(pside, s)]
