@@ -558,7 +558,13 @@ class BitgetBot(CCXTBot):
         return clip_by_timestamp(deduped, start_time, end_time)
 
     def _build_order_params(self, order: dict) -> dict:
-        return {
+        # metabot-compat (port of 2494984f): preserve the live-proven Bitget v2
+        # hedge-mode param set. The deployed v7.6.2 book (m5_hedged8, hedge_mode=true)
+        # places orders with holdSide + posSide + explicit tradeSide open/close;
+        # upstream v7.12 sends holdSide only. Keep the proven set until a Phase 2
+        # paper/testnet smoke (ccxt 4.5.48) confirms holdSide-alone sides hedge
+        # opens/closes correctly — then this can be trimmed back to upstream.
+        params = {
             "timeInForce": (
                 "PO" if require_live_value(self.config, "time_in_force") == "post_only" else "GTC"
             ),
@@ -566,7 +572,10 @@ class BitgetBot(CCXTBot):
             "reduceOnly": order["reduce_only"],
             "oneWayMode": False,
             "clientOid": order["custom_id"],
+            "posSide": order["position_side"],
         }
+        params["tradeSide"] = "close" if order["reduce_only"] else "open"
+        return params
 
     async def update_exchange_config_by_symbols(self, symbols):
         coros_to_call_lev, coros_to_call_margin_mode = {}, {}
