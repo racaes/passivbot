@@ -78,7 +78,11 @@ warnings.filterwarnings(
 ONE_MIN_MS = 60_000
 
 _LOCK_TIMEOUT_SECONDS = 10.0
-_LOCK_STALE_SECONDS = 180.0
+# metabot-compat (port of 2494984f): shorten stale-lock recovery 180->20s so a
+# crashed/killed sibling holding the OHLCV cache lock doesn't stall the rest of
+# the fleet for 3 minutes. metabot runs the bot under a supervisor that may
+# restart processes; 20s bounds the worst-case cache-lock stall.
+_LOCK_STALE_SECONDS = 20.0
 
 
 def _log_symbol(symbol: Any) -> str:
