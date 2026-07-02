@@ -4655,6 +4655,35 @@ class Passivbot:
             for pside in self._hsl_psides()
         ):
             await self._equity_hard_stop_initialize_from_history()
+        # metabot-compat port (v7.12 bitget cold-start execution-barrier bootstrap).
+        # On a cold start (no fill-events cache) the first fills fetch is slow —
+        # throttled per-fill clientOid enrichment over the full history. Run inside the
+        # per-cycle staged refresh below it can be cancelled before recording fills
+        # fresh, so freshness_ledger.surface_epoch("fills") never reaches 1, the
+        # background fills prefetch never schedules (it requires epoch>=1), and the
+        # authoritative execution barrier never lifts — observed live 2026-07-01
+        # (bitget inert ~2h; see docs/migrations/2026-07-01_v712_m5hedged9_cutover_report.md).
+        # Seed the fills surface once here, uninterrupted, before the cancellation-prone
+        # loop: ensure a ledger exists, then one update_pnls() records fills fresh and
+        # stamps surface_epoch("fills")>=1 so the normal machinery bootstraps.
+        try:
+            _fills_ledger = getattr(self, "freshness_ledger", None)
+            _fills_epoch = (
+                int(_fills_ledger.surface_epoch("fills")) if _fills_ledger is not None else 0
+            )
+            if _fills_epoch < 1 and not self.stop_signal_received:
+                if getattr(self, "freshness_ledger", None) is None:
+                    self._begin_authoritative_refresh_epoch()
+                logging.info(
+                    "[fills] cold-start fills seed: priming fills surface before the "
+                    "execution loop (prevents v7.12 bitget execution-barrier bootstrap deadlock)"
+                )
+                await self.update_pnls(source="cold_start_seed")
+        except Exception as _fills_seed_exc:
+            logging.warning(
+                "[fills] cold-start fills seed failed (falling back to staged refresh): %s",
+                _fills_seed_exc,
+            )
         while not self.stop_signal_received:
             try:
                 loop_start_ms = utc_ms()
